@@ -1,0 +1,240 @@
+/* dashboard.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --primary-color: #0056b3;
+  --secondary-color: #2b3a4a;
+  --bg-color: #f4f7f6;
+  --surface-color: #ffffff;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --border-color: #e0e0e0;
+  --danger-color: #dc3545;
+  --success-color: #28a745;
+}
+
+body {
+  background-color: var(--bg-color);
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-primary);
+}
+
+.dashboard-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.dashboard-sidebar {
+  width: 250px;
+  background-color: var(--secondary-color);
+  color: white;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 20px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-header h2 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.2rem;
+  letter-spacing: 1px;
+}
+
+.sidebar-menu {
+  flex: 1;
+  padding-top: 20px;
+}
+
+.menu-item {
+  padding: 15px 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.menu-item:hover, .menu-item.active {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-left: 4px solid var(--primary-color);
+}
+
+.sidebar-footer {
+  padding: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: transparent;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.logout-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: white;
+}
+
+.dashboard-main {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+}
+
+.dashboard-header {
+  margin-bottom: 30px;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.card {
+  background-color: var(--surface-color);
+  border-radius: 8px;
+  padding: 25px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  margin-bottom: 30px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 1.4rem;
+  color: var(--secondary-color);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 10px;
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 15px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  box-sizing: border-box;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
+}
+
+.form-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 250px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #004494;
+}
+
+.btn-danger {
+  background-color: var(--danger-color);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+}
+
+/* Table Styles */
+.table-container {
+  overflow-x: auto;
+}
+
+.dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.dashboard-table th, .dashboard-table td {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dashboard-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+}
+
+.dashboard-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background-color: #e9ecef;
+  color: var(--text-secondary);
+}
+
+.status-badge.active {
+  background-color: #d4edda;
+  color: #155724;
+}
