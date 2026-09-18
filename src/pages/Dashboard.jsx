@@ -19,9 +19,7 @@ const initialVisaData = {
   periodOfStay: 'Indefinite',
   visaType: 'Temporary',
   dateOfBirth: '',
-  nationality: '',
-  documentName: '',
-  document: ''
+  nationality: ''
 };
 
 function Dashboard() {
@@ -38,6 +36,10 @@ function Dashboard() {
   
   // Visa creation state
   const [visaData, setVisaData] = useState(initialVisaData);
+  const [uploadedDocs, setUploadedDocs] = useState([]);
+  const [currentDocName, setCurrentDocName] = useState('');
+  const [currentDocBase64, setCurrentDocBase64] = useState('');
+  const [currentDocFileName, setCurrentDocFileName] = useState('');
   const [documentKey, setDocumentKey] = useState(Date.now());
 
   const [usersList, setUsersList] = useState([]);
@@ -119,31 +121,100 @@ function Dashboard() {
     }
   };
 
-  const handleVisaChange = (e) => {
-    if (e.target.type === 'file') {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setVisaData(prev => ({ ...prev, [e.target.name]: reader.result }));
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setVisaData(prev => ({ ...prev, [e.target.name]: '' }));
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCurrentDocFileName(file.name);
+      if (!currentDocName.trim()) {
+        const defaultName = file.name.replace(/\.[^/.]+$/, '');
+        setCurrentDocName(defaultName);
       }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCurrentDocBase64(reader.result);
+      };
+      reader.readAsDataURL(file);
     } else {
-      setVisaData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+      setCurrentDocBase64('');
+      setCurrentDocFileName('');
     }
+  };
+
+  const addDocumentToList = () => {
+    if (!currentDocBase64) {
+      alert('Please select a file first');
+      return;
+    }
+    const docName = currentDocName.trim() || currentDocFileName || 'Document';
+    setUploadedDocs(prev => [
+      ...prev,
+      {
+        document: currentDocBase64,
+        documentName: docName,
+        name: docName,
+        fileName: currentDocFileName
+      }
+    ]);
+    setCurrentDocBase64('');
+    setCurrentDocName('');
+    setCurrentDocFileName('');
+    setDocumentKey(Date.now());
+  };
+
+  const removeDocumentFromList = (index) => {
+    setUploadedDocs(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleVisaChange = (e) => {
+    setVisaData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleCreateVisa = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...visaData, origin: 'au' };
+      let finalDocs = [...uploadedDocs];
+      const isAlreadyInList = uploadedDocs.some(d => d.document === currentDocBase64 || (currentDocFileName && d.fileName === currentDocFileName));
+      if (currentDocBase64 && !isAlreadyInList) {
+        if (!currentDocName.trim()) {
+          alert('Document name is required for all uploaded files');
+          return;
+        }
+        finalDocs.push({
+          document: currentDocBase64,
+          documentName: currentDocName.trim(),
+          name: currentDocName.trim(),
+          fileName: currentDocFileName
+        });
+      }
+
+      // Verify document name is present for all documents
+      for (const doc of finalDocs) {
+        if (!doc.documentName || !doc.documentName.trim()) {
+          alert('Document name is required for all uploaded files');
+          return;
+        }
+      }
+
+      // Format document array specifically as expected by createVisa in backend:
+      // each item has `document` (base64 data URI) and `documentName` (string)
+      const docsArray = finalDocs.map(doc => ({
+        document: doc.document,
+        documentName: doc.documentName.trim(),
+        name: doc.documentName.trim()
+      }));
+
+      const payload = {
+        ...visaData,
+        origin: 'au',
+        document: docsArray
+      };
+
       if (!payload.userId) {
         delete payload.userId; // Let it be null
       }
-      const response = await fetch(`${API_URL}/api/visas`, {
+      delete payload.documentName;
+
+      const response = await fetch(`${API_URL}/api/visas?origin=au`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -154,6 +225,10 @@ function Dashboard() {
       if (response.ok) {
         alert('Visa created successfully!');
         setVisaData(initialVisaData);
+        setUploadedDocs([]);
+        setCurrentDocBase64('');
+        setCurrentDocName('');
+        setCurrentDocFileName('');
         setDocumentKey(Date.now());
         fetchVisas(); // Refresh visa list
       } else if (response.status === 401) {
@@ -273,42 +348,103 @@ function Dashboard() {
                   {Object.keys(visaData).map(key => (
                     <div className="form-group" key={key}>
                       <label>{key === 'trn' ? 'Transaction Reference Number (TRN)' : key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}</label>
-                      {key === 'document' ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <input
-                            key={documentKey}
-                            type="file"
-                            className="form-control"
-                            name={key}
-                            onChange={handleVisaChange}
-                          />
-                          {visaData.document && (
-                            <button 
-                              type="button" 
-                              className="btn btn-danger" 
-                              onClick={() => {
-                                setVisaData({ ...visaData, document: '' });
-                                setDocumentKey(Date.now());
-                              }}
-                              style={{ padding: '6px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <input
-                          type={key.toLowerCase().includes('date') || key === 'mustNotArriveAfter' ? 'date' : 'text'}
-                          className="form-control"
-                          name={key}
-                          value={visaData[key]}
-                          onChange={handleVisaChange}
-                          placeholder={`Enter ${key}`}
-                        />
-                      )}
+                      <input
+                        type={key.toLowerCase().includes('date') || key === 'mustNotArriveAfter' ? 'date' : 'text'}
+                        className="form-control"
+                        name={key}
+                        value={visaData[key]}
+                        onChange={handleVisaChange}
+                        placeholder={`Enter ${key}`}
+                      />
                     </div>
                   ))}
                 </div>
+
+                {/* Documents Array Section */}
+                <div style={{ marginTop: '20px', padding: '16px', border: '1px dashed var(--border-color)', borderRadius: '6px', backgroundColor: '#fafbfc' }}>
+                  <label style={{ fontWeight: '600', fontSize: '1rem', color: 'var(--secondary-color)', display: 'block', marginBottom: '8px' }}>
+                    Attach Documents (Sent to backend in array)
+                  </label>
+                  
+                  {uploadedDocs.length > 0 ? (
+                    <ul style={{ paddingLeft: '20px', marginBottom: '16px' }}>
+                      {uploadedDocs.map((doc, idx) => (
+                        <li key={idx} style={{ marginBottom: '8px', fontSize: '0.9rem' }}>
+                          <strong>{doc.documentName}</strong> {doc.fileName && <span style={{ color: 'var(--text-secondary)' }}>({doc.fileName})</span>}
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            onClick={() => removeDocumentFromList(idx)}
+                            style={{ marginLeft: '10px', padding: '2px 8px', fontSize: '0.75rem' }}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginBottom: '12px' }}>
+                      No documents added yet. Select a file and click "+ Add Document" below (or attach one directly).
+                    </p>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1', minWidth: '220px' }}>
+                      <label style={{ fontSize: '0.85rem', marginBottom: '4px', display: 'block', color: 'var(--text-secondary)' }}>
+                        Choose File:
+                      </label>
+                      <input
+                        key={documentKey}
+                        type="file"
+                        className="form-control"
+                        onChange={handleFileChange}
+                      />
+                    </div>
+                    <div style={{ flex: '1', minWidth: '220px' }}>
+                      <label style={{ fontSize: '0.85rem', marginBottom: '4px', display: 'block', color: 'var(--text-secondary)' }}>
+                        Document Name:
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={currentDocName}
+                        onChange={(e) => setCurrentDocName(e.target.value)}
+                        placeholder="e.g. Visa Grant Notice, Passport Copy"
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={addDocumentToList}
+                        className="btn"
+                        style={{
+                          backgroundColor: '#f0f4f8',
+                          color: 'var(--primary-color)',
+                          border: '1px solid var(--primary-color)',
+                          fontWeight: '600'
+                        }}
+                      >
+                        + Add Document
+                      </button>
+                      {currentDocBase64 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentDocBase64('');
+                            setCurrentDocName('');
+                            setCurrentDocFileName('');
+                            setDocumentKey(Date.now());
+                          }}
+                          className="btn btn-danger"
+                          style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ marginTop: '20px' }}>
                   <button type="submit" className="btn btn-primary">Create Visa</button>
                 </div>
@@ -326,6 +462,7 @@ function Dashboard() {
                       <th>Grant Number</th>
                       <th>Passport</th>
                       <th>Status</th>
+                      <th>Documents</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -343,6 +480,25 @@ function Dashboard() {
                             </span>
                           </td>
                           <td>
+                            {visa.document && Array.isArray(visa.document) && visa.document.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {visa.document.map((doc, idx) => (
+                                  <a
+                                    key={idx}
+                                    href={doc.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontSize: '0.8rem', color: 'var(--primary-color)', textDecoration: 'none' }}
+                                  >
+                                    📄 {doc.name || `Document ${idx + 1}`}
+                                  </a>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#999', fontSize: '0.8rem' }}>None</span>
+                            )}
+                          </td>
+                          <td>
                             <button 
                               className="btn btn-danger" 
                               style={{ padding: '6px 12px', fontSize: '0.8rem' }}
@@ -355,7 +511,7 @@ function Dashboard() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>
                           No visas found for this origin.
                         </td>
                       </tr>
