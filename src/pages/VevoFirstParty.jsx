@@ -336,6 +336,17 @@ function VevoFirstParty() {
 
   const formatDate = (dateString) => {
     if (!dateString) return "";
+    if (typeof dateString === "string") {
+      const trimmed = dateString.trim().toLowerCase();
+      if (
+        trimmed === "" ||
+        trimmed === "null" ||
+        trimmed === "undefined" ||
+        trimmed === "invalid date"
+      ) {
+        return "";
+      }
+    }
     try {
       const date = new Date(dateString);
       if (isNaN(date.getTime())) return dateString;
@@ -348,6 +359,115 @@ function VevoFirstParty() {
     } catch {
       return dateString;
     }
+  };
+
+  const hasValue = (val) => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      if (
+        trimmed === "" ||
+        trimmed.toLowerCase() === "null" ||
+        trimmed.toLowerCase() === "undefined" ||
+        trimmed.toLowerCase() === "invalid date"
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const getDisplayFields = () => {
+    if (!visaData) return [];
+
+    const standardFields = [
+      { label: "Family name", value: visaData.familyName ?? visaData.FamilyName ?? visaData.surname },
+      { label: "Given name(s)", value: visaData.givenNames ?? visaData.givenName ?? visaData.GivenNames ?? visaData.firstName },
+      { label: "Date of birth", value: formatDate(visaData.dateOfBirth ?? visaData.dob ?? visaData.DateOfBirth) },
+      { label: "Document number", value: visaData.documentNumber ?? visaData.passportNumber ?? visaData.DocumentNumber },
+      { label: "Nationality", value: visaData.nationality ?? visaData.country },
+      { label: "Visa class / subclass", value: visaData.visaClassSubclass ?? visaData.visaClass ?? visaData.subclass },
+      { label: "Visa applicant", value: visaData.visaApplicant ?? visaData.applicantType },
+      { label: "Visa grant date", value: formatDate(visaData.visaGrantDate ?? visaData.grantDate) },
+      { label: "Visa expiry date", value: formatDate(visaData.visaExpiryDate ?? visaData.expiryDate) },
+      { label: "Visa status", value: visaData.visaStatus ?? visaData.status },
+      { label: "Visa grant number", value: visaData.visaGrantNumber ?? visaData.grantNumber ?? visaData.VisaGrantNumber },
+      { label: "Transaction reference number (TRN)", value: visaData.trn ?? visaData.TRN },
+      { label: "Entries allowed", value: visaData.entriesAllowed },
+      { label: "Must not arrive after", value: formatDate(visaData.mustNotArriveAfter) },
+      { label: "Enter before date", value: formatDate(visaData.enterBeforeDate) },
+      { label: "Period of stay", value: visaData.periodOfStay ?? visaData.stayPeriod },
+      { label: "Visa type", value: visaData.visaType },
+    ];
+
+    const handledKeys = new Set([
+      "_id",
+      "userId",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "document",
+      "documents",
+      "origin",
+      "familyName",
+      "FamilyName",
+      "surname",
+      "givenNames",
+      "givenName",
+      "GivenNames",
+      "firstName",
+      "dateOfBirth",
+      "dob",
+      "DateOfBirth",
+      "documentNumber",
+      "passportNumber",
+      "DocumentNumber",
+      "nationality",
+      "country",
+      "visaClassSubclass",
+      "visaClass",
+      "subclass",
+      "visaApplicant",
+      "applicantType",
+      "visaGrantDate",
+      "grantDate",
+      "visaExpiryDate",
+      "expiryDate",
+      "visaStatus",
+      "status",
+      "visaGrantNumber",
+      "grantNumber",
+      "VisaGrantNumber",
+      "trn",
+      "TRN",
+      "entriesAllowed",
+      "mustNotArriveAfter",
+      "enterBeforeDate",
+      "periodOfStay",
+      "stayPeriod",
+      "visaType",
+      "searchType",
+      "referenceNumber",
+    ]);
+
+    const filteredStandard = standardFields.filter((item) => hasValue(item.value));
+
+    const extraFields = Object.entries(visaData)
+      .filter(
+        ([key, val]) =>
+          !handledKeys.has(key) &&
+          typeof val !== "object" &&
+          typeof val !== "function" &&
+          hasValue(val)
+      )
+      .map(([key, val]) => ({
+        label: key
+          .replace(/([A-Z])/g, " $1")
+          .replace(/^./, (str) => str.toUpperCase()),
+        value: String(val),
+      }));
+
+    return [...filteredStandard, ...extraFields];
   };
 
   const handleViewPdf = async () => {
@@ -1046,70 +1166,12 @@ function VevoFirstParty() {
                       Canberra, Australia
                     </td>
                   </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Family name</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.familyName}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Given name(s)</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.givenNames}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Date of birth</td>
-                    <td style={{ padding: "8px 10px" }}>{formatDate(visaData.dateOfBirth)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Document number</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.documentNumber}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Nationality</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.nationality}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa class / subclass</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.visaClassSubclass}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa applicant</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.visaApplicant}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa grant date</td>
-                    <td style={{ padding: "8px 10px" }}>{formatDate(visaData.visaGrantDate)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa expiry date</td>
-                    <td style={{ padding: "8px 10px" }}>{formatDate(visaData.visaExpiryDate)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa status</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.visaStatus}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa grant number</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.visaGrantNumber}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Entries allowed</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.entriesAllowed}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Must not arrive after</td>
-                    <td style={{ padding: "8px 10px" }}>{formatDate(visaData.mustNotArriveAfter)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Enter before date</td>
-                    <td style={{ padding: "8px 10px" }}>{formatDate(visaData.enterBeforeDate)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Period of stay</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.periodOfStay}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "8px 10px" }}>Visa type</td>
-                    <td style={{ padding: "8px 10px" }}>{visaData.visaType}</td>
-                  </tr>
+                  {getDisplayFields().map((item, idx) => (
+                    <tr key={idx}>
+                      <td style={{ padding: "8px 10px" }}>{item.label}</td>
+                      <td style={{ padding: "8px 10px" }}>{item.value}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
