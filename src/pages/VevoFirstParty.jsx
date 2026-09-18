@@ -645,7 +645,6 @@ function VevoFirstParty() {
         body: JSON.stringify({
           searchType: referenceType,
           referenceNumber: documentNumber,
-          origin: "au",
         }),
       });
 
