@@ -238,3 +238,18 @@ body {
   background-color: #d4edda;
   color: #155724;
 }
+
+.role-badge-admin {
+  background-color: #ede9fe;
+  color: #6d28d9;
+}
+
+.role-badge-employe {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.role-badge-user {
+  background-color: #f1f5f9;
+  color: #475569;
+}

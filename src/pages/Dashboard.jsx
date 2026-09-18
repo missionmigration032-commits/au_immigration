@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './dashboard.css';
 
 const initialVisaData = {
+  userId: '',
   familyName: '',
   givenNames: '',
   documentNumber: '',
@@ -50,6 +51,10 @@ function Dashboard() {
       const response = await fetch(`${API_URL}/api/visas?origin=au`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
         if (data.visas) setVisasList(data.visas);
@@ -59,25 +64,27 @@ function Dashboard() {
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/users?origin=au`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data)) setUsersList(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    }
+  };
+
   useEffect(() => {
     if (role === 'admin' || role === 'employe') {
-      // Fetch users
-      fetch(`${API_URL}/api/auth/users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      .then(async res => {
-        if (res.status === 401) {
-          handleLogout();
-          return null;
-        }
-        return res.json();
-      })
-      .then(data => {
-        if(data && Array.isArray(data)) setUsersList(data);
-      })
-      .catch(err => console.error(err));
-
-      // Fetch visas
+      fetchUsers();
       fetchVisas();
     }
   }, [role, token]);
@@ -90,25 +97,20 @@ function Dashboard() {
 
   const handleCreateAccount = async (type) => {
     try {
-      const endpoint = type === 'employe' ? '/api/auth/employe' : '/api/auth/user';
+      const endpoint = type === 'employe' ? '/api/auth/employe?origin=au' : '/api/auth/user?origin=au';
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, origin: 'au' })
       });
       if (response.ok) {
         alert(`${type} created successfully!`);
         setUsername('');
         setPassword('');
-        // Refresh users list
-        fetch(`${API_URL}/api/auth/users`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        .then(res => res.json())
-        .then(data => { if(data && Array.isArray(data)) setUsersList(data); });
+        fetchUsers();
       } else if (response.status === 401) {
         handleLogout();
       } else {
@@ -117,6 +119,26 @@ function Dashboard() {
       }
     } catch (error) {
       alert('Error creating account');
+      console.error(error);
+    }
+  };
+
+  const handleDeleteUser = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this user?')) return;
+    try {
+      const response = await fetch(`${API_URL}/api/auth/users/${id}?origin=au`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        alert('User deleted successfully!');
+        fetchUsers();
+      } else {
+        const error = await response.json();
+        alert(`Failed to delete user: ${error.message}`);
+      }
+    } catch (error) {
+      alert('Error deleting user');
       console.error(error);
     }
   };
@@ -263,6 +285,172 @@ function Dashboard() {
     }
   };
 
+  const renderUsersTable = () => (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+        <h2 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Created Accounts ({usersList.length})
+        </h2>
+        <button 
+          type="button"
+          className="btn btn-primary" 
+          style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+          onClick={fetchUsers}
+        >
+          🔄 Refresh Users
+        </button>
+      </div>
+      <div className="table-container">
+        <table className="dashboard-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Origin</th>
+              <th>Created Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usersList.length > 0 ? (
+              usersList.map(u => (
+                <tr key={u._id}>
+                  <td style={{ fontWeight: '600' }}>{u.username}</td>
+                  <td>
+                    <span className={`status-badge role-badge-${u.role || 'user'}`}>
+                      {u.role ? u.role.toUpperCase() : 'USER'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="status-badge">
+                      {u.origin ? u.origin.toUpperCase() : 'AU'}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-'}
+                  </td>
+                  <td>
+                    {u.role !== 'admin' ? (
+                      <button 
+                        className="btn btn-danger" 
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                        onClick={() => handleDeleteUser(u._id)}
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Protected</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>
+                  No created accounts found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderVisasTable = () => (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+        <h2 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Visa List ({visasList.length})
+        </h2>
+        <button 
+          type="button"
+          className="btn btn-primary" 
+          style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+          onClick={fetchVisas}
+        >
+          🔄 Refresh Visas
+        </button>
+      </div>
+      <div className="table-container">
+        <table className="dashboard-table">
+          <thead>
+            <tr>
+              <th>Given Names</th>
+              <th>Family Name</th>
+              <th>Grant Number</th>
+              <th>Passport</th>
+              <th>Status</th>
+              <th>User Account</th>
+              <th>Documents</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visasList.length > 0 ? (
+              visasList.map(visa => (
+                <tr key={visa._id}>
+                  <td>{visa.givenNames || '-'}</td>
+                  <td>{visa.familyName || '-'}</td>
+                  <td>{visa.visaGrantNumber || '-'}</td>
+                  <td>{visa.documentNumber || '-'}</td>
+                  <td>
+                    <span className={`status-badge ${visa.visaStatus === 'In Effect' ? 'active' : ''}`}>
+                      {visa.visaStatus || 'Unknown'}
+                    </span>
+                  </td>
+                  <td>
+                    {visa.userId ? (
+                      <span className="status-badge" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>
+                        👤 {typeof visa.userId === 'object' ? visa.userId.username : visa.userId}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#999', fontSize: '0.8rem' }}>Unassigned</span>
+                    )}
+                  </td>
+                  <td>
+                    {visa.document && Array.isArray(visa.document) && visa.document.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {visa.document.map((doc, idx) => (
+                          <a
+                            key={idx}
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: '0.8rem', color: 'var(--primary-color)', textDecoration: 'none' }}
+                          >
+                            📄 {doc.name || `Document ${idx + 1}`}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: '#999', fontSize: '0.8rem' }}>None</span>
+                    )}
+                  </td>
+                  <td>
+                    <button 
+                      className="btn btn-danger" 
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      onClick={() => handleDeleteVisa(visa._id)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="8" style={{ textAlign: 'center', padding: '20px' }}>
+                  No visas found for this origin.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
   if (role !== 'admin' && role !== 'employe') {
     return <div style={{ padding: '2rem' }}>Access Denied. Only Admin and Employee roles can access this dashboard.</div>;
   }
@@ -275,6 +463,14 @@ function Dashboard() {
           <h2>Admin Portal</h2>
         </div>
         <div className="sidebar-menu">
+          {role === 'admin' && (
+            <div 
+              className={`menu-item ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
+            >
+              <span>📊</span> Overview
+            </div>
+          )}
           <div 
             className={`menu-item ${activeTab === 'visas' ? 'active' : ''}`}
             onClick={() => setActiveTab('visas')}
@@ -298,45 +494,96 @@ function Dashboard() {
       {/* Main Content */}
       <main className="dashboard-main">
         <div className="dashboard-header">
-          <h1>Welcome, {role}</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+            <div>
+              <h1>Welcome, {role.toUpperCase()}</h1>
+              <p style={{ margin: '5px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                ImmiAccount Administration Portal (Origin: AU)
+              </p>
+            </div>
+            {role === 'admin' && (
+              <div style={{ display: 'flex', gap: '15px' }}>
+                <div 
+                  onClick={() => setActiveTab('visas')}
+                  style={{ 
+                    cursor: 'pointer',
+                    background: 'white', 
+                    padding: '10px 18px', 
+                    borderRadius: '8px', 
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                    borderLeft: '4px solid var(--primary-color)',
+                    minWidth: '110px'
+                  }}
+                >
+                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Visas</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-color)' }}>{visasList.length}</div>
+                </div>
+                <div 
+                  onClick={() => setActiveTab('accounts')}
+                  style={{ 
+                    cursor: 'pointer',
+                    background: 'white', 
+                    padding: '10px 18px', 
+                    borderRadius: '8px', 
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                    borderLeft: '4px solid #10b981',
+                    minWidth: '110px'
+                  }}
+                >
+                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Accounts</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#10b981' }}>{usersList.length}</div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
+        {activeTab === 'overview' && role === 'admin' && (
+          <>
+            {renderVisasTable()}
+            {renderUsersTable()}
+          </>
+        )}
+
         {activeTab === 'accounts' && (
-          <div className="card">
-            <h2>Create Account</h2>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Username</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={username} 
-                  onChange={e => setUsername(e.target.value)} 
-                  placeholder="Enter username"
-                />
+          <>
+            <div className="card">
+              <h2>Create Account</h2>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Username</label>
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    value={username} 
+                    onChange={e => setUsername(e.target.value)} 
+                    placeholder="Enter username"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Password</label>
+                  <input 
+                    type="password" 
+                    className="form-control" 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    placeholder="Enter password"
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label>Password</label>
-                <input 
-                  type="password" 
-                  className="form-control" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  placeholder="Enter password"
-                />
-              </div>
-            </div>
-            <div style={{ marginTop: '10px' }}>
-              {role === 'admin' && (
-                <button className="btn btn-primary" onClick={() => handleCreateAccount('employe')} style={{ marginRight: '10px' }}>
-                  Create Employee
+              <div style={{ marginTop: '10px' }}>
+                {role === 'admin' && (
+                  <button className="btn btn-primary" onClick={() => handleCreateAccount('employe')} style={{ marginRight: '10px' }}>
+                    Create Employee
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={() => handleCreateAccount('user')}>
+                  Create User
                 </button>
-              )}
-              <button className="btn btn-primary" onClick={() => handleCreateAccount('user')}>
-                Create User
-              </button>
+              </div>
             </div>
-          </div>
+            {renderUsersTable()}
+          </>
         )}
 
         {activeTab === 'visas' && (
@@ -345,7 +592,29 @@ function Dashboard() {
               <h2>Create New Visa</h2>
               <form onSubmit={handleCreateVisa}>
                 <div className="form-row">
-                  {Object.keys(visaData).map(key => (
+                  <div className="form-group" style={{ flex: '1 1 100%' }}>
+                    <label style={{ fontWeight: '600', color: 'var(--secondary-color)' }}>
+                      Assign to User Account (User ID)
+                    </label>
+                    <select
+                      className="form-control"
+                      name="userId"
+                      value={visaData.userId || ''}
+                      onChange={handleVisaChange}
+                    >
+                      <option value="">-- Select User Account (Optional / Unassigned) --</option>
+                      {usersList.map(u => (
+                        <option key={u._id} value={u._id}>
+                          {u.username} ({u.role ? u.role.toUpperCase() : 'USER'}) — ID: {u._id}
+                        </option>
+                      ))}
+                    </select>
+                    <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                      Link this visa to an existing user account fetched from the API.
+                    </small>
+                  </div>
+
+                  {Object.keys(visaData).filter(key => key !== 'userId').map(key => (
                     <div className="form-group" key={key}>
                       <label>{key === 'trn' ? 'Transaction Reference Number (TRN)' : key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}</label>
                       <input
@@ -369,13 +638,13 @@ function Dashboard() {
                   {uploadedDocs.length > 0 ? (
                     <ul style={{ paddingLeft: '20px', marginBottom: '16px' }}>
                       {uploadedDocs.map((doc, idx) => (
-                        <li key={idx} style={{ marginBottom: '8px', fontSize: '0.9rem' }}>
-                          <strong>{doc.documentName}</strong> {doc.fileName && <span style={{ color: 'var(--text-secondary)' }}>({doc.fileName})</span>}
-                          <button
-                            type="button"
-                            className="btn btn-danger"
-                            onClick={() => removeDocumentFromList(idx)}
-                            style={{ marginLeft: '10px', padding: '2px 8px', fontSize: '0.75rem' }}
+                        <li key={idx} style={{ marginBottom: '6px' }}>
+                          <strong>{doc.documentName || doc.name}</strong> 
+                          <span style={{ fontSize: '0.85rem', color: '#666', marginLeft: '6px' }}>({doc.fileName || 'file'})</span>
+                          <button 
+                            type="button" 
+                            onClick={() => removeDocumentFromList(idx)} 
+                            style={{ marginLeft: '10px', color: '#d9534f', background: 'none', border: 'none', cursor: 'pointer' }}
                           >
                             Remove
                           </button>
@@ -383,64 +652,38 @@ function Dashboard() {
                       ))}
                     </ul>
                   ) : (
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginBottom: '12px' }}>
-                      No documents added yet. Select a file and click "+ Add Document" below (or attach one directly).
-                    </p>
+                    <p style={{ fontSize: '0.9rem', color: '#777', marginBottom: '12px' }}>No documents attached yet.</p>
                   )}
 
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1', minWidth: '220px' }}>
-                      <label style={{ fontSize: '0.85rem', marginBottom: '4px', display: 'block', color: 'var(--text-secondary)' }}>
-                        Choose File:
-                      </label>
-                      <input
+                  <div className="form-row" style={{ alignItems: 'flex-end' }}>
+                    <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>
+                      <label>Document Name</label>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="e.g. Passport Copy" 
+                        value={currentDocName}
+                        onChange={e => setCurrentDocName(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>
+                      <label>Select File</label>
+                      <input 
                         key={documentKey}
-                        type="file"
-                        className="form-control"
+                        type="file" 
+                        className="form-control" 
                         onChange={handleFileChange}
                       />
                     </div>
-                    <div style={{ flex: '1', minWidth: '220px' }}>
-                      <label style={{ fontSize: '0.85rem', marginBottom: '4px', display: 'block', color: 'var(--text-secondary)' }}>
-                        Document Name:
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={currentDocName}
-                        onChange={(e) => setCurrentDocName(e.target.value)}
-                        placeholder="e.g. Visa Grant Notice, Passport Copy"
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        type="button"
+                    <div className="form-group" style={{ flex: 0, minWidth: '120px' }}>
+                      <button 
+                        type="button" 
+                        className="btn btn-primary" 
                         onClick={addDocumentToList}
-                        className="btn"
-                        style={{
-                          backgroundColor: '#f0f4f8',
-                          color: 'var(--primary-color)',
-                          border: '1px solid var(--primary-color)',
-                          fontWeight: '600'
-                        }}
+                        style={{ width: '100%', marginBottom: '0' }}
                       >
-                        + Add Document
+                        Add to List
                       </button>
-                      {currentDocBase64 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCurrentDocBase64('');
-                            setCurrentDocName('');
-                            setCurrentDocFileName('');
-                            setDocumentKey(Date.now());
-                          }}
-                          className="btn btn-danger"
-                          style={{ padding: '8px 12px', fontSize: '0.85rem' }}
-                        >
-                          Clear
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -450,76 +693,7 @@ function Dashboard() {
                 </div>
               </form>
             </div>
-
-            <div className="card">
-              <h2>Visa List</h2>
-              <div className="table-container">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>Given Names</th>
-                      <th>Family Name</th>
-                      <th>Grant Number</th>
-                      <th>Passport</th>
-                      <th>Status</th>
-                      <th>Documents</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visasList.length > 0 ? (
-                      visasList.map(visa => (
-                        <tr key={visa._id}>
-                          <td>{visa.givenNames || '-'}</td>
-                          <td>{visa.familyName || '-'}</td>
-                          <td>{visa.visaGrantNumber || '-'}</td>
-                          <td>{visa.documentNumber || '-'}</td>
-                          <td>
-                            <span className={`status-badge ${visa.visaStatus === 'In Effect' ? 'active' : ''}`}>
-                              {visa.visaStatus || 'Unknown'}
-                            </span>
-                          </td>
-                          <td>
-                            {visa.document && Array.isArray(visa.document) && visa.document.length > 0 ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {visa.document.map((doc, idx) => (
-                                  <a
-                                    key={idx}
-                                    href={doc.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ fontSize: '0.8rem', color: 'var(--primary-color)', textDecoration: 'none' }}
-                                  >
-                                    📄 {doc.name || `Document ${idx + 1}`}
-                                  </a>
-                                ))}
-                              </div>
-                            ) : (
-                              <span style={{ color: '#999', fontSize: '0.8rem' }}>None</span>
-                            )}
-                          </td>
-                          <td>
-                            <button 
-                              className="btn btn-danger" 
-                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                              onClick={() => handleDeleteVisa(visa._id)}
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>
-                          No visas found for this origin.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {renderVisasTable()}
           </>
         )}
       </main>
