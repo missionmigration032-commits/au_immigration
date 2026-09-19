@@ -4,33 +4,836 @@ body {
 }
 
 .immi-application {
-  font-family: Arial, Helvetica, sans-serif;
-  color: #333;
+  font-family: Arial, Helvetica, "Nimbus Sans L", sans-serif;
+  color: #333333;
   font-size: 13px;
   background-color: #e5e5e5;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
+/* ==========================================================================
+   Header (Australian Department of Home Affairs & ImmiAccount)
+   ========================================================================== */
 .immi-header {
-  background-color: #005a9c;
+  background: linear-gradient(90deg, #00233f 0%, #003764 60%, #004277 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 30px;
-  height: 60px;
+  padding: 10px 24px;
+  min-height: 72px;
+  box-sizing: border-box;
+}
+
+.immi-header-left {
+  display: flex;
+  align-items: center;
 }
 
 .immi-header-left img {
-  height: 50px;
+  height: 46px;
+  width: auto;
+  max-width: 260px;
+  object-fit: contain;
+}
+
+.immi-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.immi-header-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #ffffff;
+  margin-bottom: 2px;
+}
+
+.immi-header-username {
+  font-weight: bold;
+  color: #ffffff;
+  letter-spacing: 0.3px;
+}
+
+.immi-header-link {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.immi-header-link:hover {
+  color: #cce4f7;
 }
 
 .immi-header-right h1 {
-  color: white;
+  color: #ffffff;
   margin: 0;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: normal;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+  font-family: "Helvetica Neue", Arial, sans-serif;
 }
 
+/* ==========================================================================
+   Navigation Bar & Tabs (Under Header)
+   ========================================================================== */
+.immi-nav-bar {
+  background-color: #f2f3f5;
+  border-bottom: 1px solid #c5cbd1;
+  padding: 0;
+  margin: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  position: relative;
+  z-index: 1000;
+}
+
+.immi-nav-container {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 14px;
+  height: 38px;
+  overflow: visible !important;
+  position: relative;
+}
+
+.immi-nav-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: #222222;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 16px 7px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s ease;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+.immi-nav-tab:hover {
+  background-color: #e4e7eb;
+}
+
+.immi-nav-tab.active {
+  background-color: #ffffff;
+  color: #111111;
+  border: 1px solid #b8c1c8;
+  border-top: 3px solid #e06d00;
+  border-bottom: 1px solid #ffffff;
+  margin-bottom: -1px;
+  font-weight: bold;
+}
+
+.immi-nav-tab .caret {
+  font-size: 10px;
+  color: #444;
+  margin-left: 2px;
+}
+
+.immi-nav-dropdown-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.immi-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: #ffffff;
+  min-width: 220px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  border: 1px solid #bcc5cc;
+  z-index: 99999;
+  padding: 4px 0;
+  display: block;
+}
+
+.immi-dropdown-menu a,
+.immi-dropdown-menu button {
+  display: block !important;
+  width: 100% !important;
+  text-align: left !important;
+  background: none !important;
+  border: none !important;
+  padding: 9px 16px !important;
+  color: #004b87 !important;
+  font-size: 12.5px !important;
+  text-decoration: none !important;
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+}
+
+.immi-dropdown-menu a:hover,
+.immi-dropdown-menu button:hover {
+  background-color: #f0f4f8 !important;
+  color: #00233f !important;
+}
+
+/* ==========================================================================
+   Dashboard Main Container & Card
+   ========================================================================== */
+.immi-dashboard-wrapper {
+  flex: 1;
+  background-color: #e5e5e5;
+  padding: 16px 20px 30px 20px;
+  box-sizing: border-box;
+}
+
+.immi-dashboard-card {
+  max-width: 1320px;
+  margin: 0 auto 20px auto;
+  background-color: #ffffff;
+  border: 1px solid #bcc5cc;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  min-height: 480px;
+}
+
+/* Sub-header Banner */
+.immi-summary-banner {
+  background-color: #002b49;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  height: 34px;
+  box-sizing: border-box;
+}
+
+.immi-summary-title {
+  font-size: 13.5px;
+  font-weight: bold;
+  letter-spacing: 0.2px;
+}
+
+.immi-help-circle {
+  background-color: #0066a4;
+  color: #ffffff;
+  border: 1px solid #7bc1e0;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.immi-help-circle:hover {
+  background-color: #004b87;
+}
+
+/* Action Toolbar (New / Import / Submit) */
+.immi-dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  padding: 16px 20px 12px 20px;
+  flex-wrap: wrap;
+}
+
+.immi-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  color: #004b87;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
+}
+
+.immi-action-link:hover {
+  color: #00233f;
+}
+
+.immi-action-icon {
+  width: 15px;
+  height: 15px;
+  color: #004b87;
+}
+
+/* Quick Search & Advanced Search Toggle */
+.immi-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 20px 10px 20px;
+}
+
+.immi-search-box-wrapper {
+  display: inline-flex !important;
+  align-items: center !important;
+  border: 1px solid #999999 !important;
+  background-color: #ffffff !important;
+  height: 24px !important;
+  max-height: 24px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  vertical-align: middle !important;
+}
+
+.immi-search-box-wrapper:focus-within {
+  border: 1px solid #777777 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.immi-search-icon-btn {
+  background-color: #e9ecef !important;
+  border: none !important;
+  border-right: 1px solid #cccccc !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  max-height: 22px !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  color: #333333 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.immi-search-icon-btn:hover {
+  background-color: #dde1e5 !important;
+}
+
+.immi-search-icon-btn:focus,
+.immi-search-icon-btn:active {
+  outline: none !important;
+  box-shadow: none !important;
+  border-right: 1px solid #cccccc !important;
+}
+
+.immi-quick-search-input,
+input.immi-quick-search-input[type="text"],
+input.immi-quick-search-input {
+  border: none !important;
+  border-style: none !important;
+  border-width: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  max-height: 22px !important;
+  line-height: 22px !important;
+  padding: 0 8px !important;
+  margin: 0 !important;
+  font-size: 12px !important;
+  color: #333333 !important;
+  width: 190px !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-radius: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.immi-quick-search-input:focus,
+.immi-quick-search-input:hover,
+.immi-quick-search-input:active,
+input.immi-quick-search-input[type="text"]:focus,
+input.immi-quick-search-input[type="text"]:hover,
+input.immi-quick-search-input[type="text"]:active {
+  border: none !important;
+  border-style: none !important;
+  border-width: 0 !important;
+  outline: none !important;
+  outline-width: 0 !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  border-color: transparent !important;
+  background-color: transparent !important;
+}
+
+.immi-advanced-search-toggle {
+  background: none;
+  border: none;
+  color: #004b87;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-family: inherit;
+  outline: none;
+}
+
+.immi-advanced-search-toggle:hover {
+  color: #00233f;
+}
+
+.immi-advanced-search-toggle:focus {
+  outline: none;
+}
+
+/* Advanced Search Filter Panel */
+.immi-advanced-search-panel {
+  background-color: #f7f9fa;
+  border-top: 1px solid #dde3e8;
+  border-bottom: 1px solid #dde3e8;
+  padding: 12px 20px;
+  margin-bottom: 8px;
+}
+
+.immi-adv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 10px;
+}
+
+.immi-adv-grid label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: bold;
+  color: #444;
+  margin-bottom: 4px;
+}
+
+.immi-adv-grid input,
+.immi-adv-grid select {
+  width: 100% !important;
+  height: 26px !important;
+  line-height: normal !important;
+  padding: 3px 8px !important;
+  border: 1px solid #999 !important;
+  font-size: 12px !important;
+  box-sizing: border-box !important;
+  border-radius: 0 !important;
+  outline: none !important;
+}
+
+.immi-adv-grid input:focus,
+.immi-adv-grid select:focus {
+  border-color: #666 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.immi-adv-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.immi-btn-sm {
+  background-color: #f2f2f2;
+  border: 1px solid #999;
+  padding: 3px 12px;
+  font-size: 11.5px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.immi-btn-sm:hover {
+  background-color: #e5e5e5;
+}
+
+.immi-btn-primary-sm {
+  background-color: #005a9c;
+  border: 1px solid #004374;
+  color: #ffffff;
+  padding: 3px 14px;
+  font-size: 11.5px;
+  cursor: pointer;
+  border-radius: 2px;
+  font-weight: bold;
+}
+
+.immi-btn-primary-sm:hover {
+  background-color: #004374;
+}
+
+/* Section Title */
+.immi-list-heading-row {
+  padding: 14px 20px 6px 20px;
+}
+
+.immi-list-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: normal;
+  color: #1a4d76;
+}
+
+/* Controls Bar (Sort by / View mode / Refresh) */
+.immi-controls-row {
+  padding: 4px 20px 14px 20px;
+}
+
+.immi-sort-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.immi-sort-select {
+  height: 23px;
+  font-size: 12px;
+  padding: 1px 6px;
+  border: 1px solid #999;
+  background-color: #ffffff;
+  color: #333;
+}
+
+.immi-view-toggles {
+  display: flex;
+  align-items: center;
+  border-left: 1px solid #cccccc;
+  margin-left: 6px;
+  padding-left: 8px;
+}
+
+.immi-view-btn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  color: #555;
+  padding: 2px 5px;
+  letter-spacing: 1px;
+}
+
+.immi-refresh-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: #004b87;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  margin-left: 10px;
+  font-family: inherit;
+}
+
+.immi-refresh-link:hover {
+  color: #00233f;
+}
+
+/* Applications Table & Empty State */
+.immi-applications-container {
+  padding: 0 20px 30px 20px;
+}
+
+.immi-loading {
+  padding: 30px 0;
+  color: #666;
+  font-style: italic;
+}
+
+.immi-no-results {
+  padding: 16px 0 40px 0;
+  color: #333333;
+  font-size: 13px;
+}
+
+.immi-applications-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #ccd4db;
+  font-size: 12.5px;
+}
+
+.immi-applications-table th {
+  background-color: #eef2f6;
+  color: #273b56;
+  font-weight: bold;
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid #bcc7d1;
+  border-right: 1px solid #e1e6ea;
+  font-size: 12px;
+}
+
+.immi-applications-table th:last-child {
+  border-right: none;
+}
+
+.immi-applications-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e4e9ed;
+  border-right: 1px solid #f0f3f5;
+  color: #333333;
+  vertical-align: middle;
+}
+
+.immi-applications-table td:last-child {
+  border-right: none;
+}
+
+.immi-app-row:hover {
+  background-color: #f7fafc;
+}
+
+.immi-cell-app strong {
+  color: #004b87;
+}
+
+.immi-cell-trn {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #222;
+}
+
+.immi-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+.status-received {
+  background-color: #e3f2fd;
+  color: #0b5394;
+  border: 1px solid #b3d7f7;
+}
+
+.status-in-effect,
+.status-approved,
+.status-granted {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.status-finalised {
+  background-color: #f5f5f5;
+  color: #424242;
+  border: 1px solid #e0e0e0;
+}
+
+.status-refused,
+.status-cancelled {
+  background-color: #ffebee;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+
+.immi-view-details-btn {
+  background-color: #f4f6f8;
+  border: 1px solid #b5c2cb;
+  color: #004b87;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.immi-view-details-btn:hover {
+  background-color: #004b87;
+  color: #ffffff;
+  border-color: #004b87;
+}
+
+.immi-pay-action-btn {
+  background-color: #004b87;
+  color: #ffffff;
+  border-color: #004b87;
+  font-weight: 600;
+}
+
+.immi-pay-action-btn:hover {
+  background-color: #002e54;
+  border-color: #002e54;
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   Dashboard Footer
+   ========================================================================== */
+.immi-dashboard-footer {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 4px;
+}
+
+.immi-footer-ha-badge {
+  color: #666666;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 18px;
+  letter-spacing: 1px;
+  user-select: none;
+}
+
+/* ==========================================================================
+   Modals (Details, Import, New App, Account, Help)
+   ========================================================================== */
+.immi-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.immi-modal-content {
+  background-color: #ffffff;
+  width: 100%;
+  max-width: 760px;
+  border: 1px solid #8c9ba5;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.immi-modal-header {
+  background-color: #002b49;
+  color: #ffffff;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.immi-modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.immi-modal-close-btn {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.immi-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+
+.immi-modal-footer {
+  background-color: #f2f4f6;
+  border-top: 1px solid #ccd4db;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.immi-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.immi-details-table th,
+.immi-details-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e2e7eb;
+  text-align: left;
+  font-size: 12px;
+}
+
+.immi-details-table th {
+  width: 38%;
+  background-color: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+}
+
+.immi-docs-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+}
+
+.immi-doc-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 6px;
+  border-radius: 2px;
+}
+
+.immi-doc-download-btn {
+  background-color: #005a9c;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 2px;
+  font-weight: bold;
+}
+
+.immi-doc-download-btn:hover {
+  background-color: #004374;
+}
+
+/* ==========================================================================
+   Login Page Preserved Classes
+   ========================================================================== */
 .immi-main {
   background-color: white;
   margin: 20px auto;
@@ -179,6 +982,7 @@ body {
   background-color: #e5e5e5;
   padding: 20px 30px;
   border-top: 1px solid #ccc;
+  margin-top: auto;
 }
 
 .immi-footer-links {
@@ -198,4 +1002,343 @@ body {
 .immi-footer-links a {
   color: #004b87;
   text-decoration: underline;
+}
+
+/* ==========================================================================
+   Manage Payments Section (Exact match to Home Affairs Online Payments reference)
+   ========================================================================== */
+.immi-payments-card {
+  margin-bottom: 24px;
+  background-color: #ffffff;
+  border: 1px solid #bcc5cc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.immi-payments-content {
+  padding: 14px 16px 20px 16px;
+  background-color: #ffffff;
+}
+
+.immi-gov-top-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.immi-gov-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.immi-gov-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f6f6 50%, #ededed 100%);
+  border: 1px solid #b5b5b5;
+  border-radius: 2px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #222222;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 1px rgba(0, 0, 0, 0.06);
+  transition: all 0.1s ease;
+  font-family: inherit;
+}
+
+.immi-gov-btn:hover {
+  background: linear-gradient(180deg, #f9f9f9 0%, #ebebeb 50%, #dfdfdf 100%);
+  border-color: #888888;
+}
+
+.immi-gov-btn:active {
+  background: #e2e2e2;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.immi-gov-btn svg {
+  color: #333333;
+  flex-shrink: 0;
+}
+
+.immi-history-search-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.immi-history-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #222222;
+  font-size: 12px;
+}
+
+.immi-history-label {
+  font-size: 12px;
+  color: #222222;
+  font-weight: normal;
+}
+
+.immi-history-select {
+  border: 1px solid #7f9db9;
+  height: 23px;
+  padding: 1px 6px;
+  font-size: 12px;
+  background-color: #ffffff;
+  color: #222222;
+  outline: none;
+  font-family: inherit;
+}
+
+.immi-adv-search-link {
+  background: none;
+  border: none;
+  color: #004b87;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.immi-adv-search-link:hover {
+  color: #00233f;
+}
+
+.immi-payments-filter-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.immi-filter-label {
+  color: #333333;
+  font-size: 12px;
+}
+
+.immi-filter-input,
+input.immi-filter-input[type="text"] {
+  border: 1px solid #7f9db9 !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  max-height: 22px !important;
+  line-height: 20px !important;
+  width: 155px !important;
+  padding: 1px 6px !important;
+  font-size: 12px !important;
+  color: #333333 !important;
+  box-sizing: border-box !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  background-color: #ffffff !important;
+  border-radius: 0 !important;
+}
+
+.immi-filter-input:focus,
+.immi-filter-input:hover,
+input.immi-filter-input[type="text"]:focus,
+input.immi-filter-input[type="text"]:hover {
+  border: 1px solid #7f9db9 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+.immi-payments-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #999999;
+}
+
+.immi-payments-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.immi-payments-table thead tr {
+  background-color: #666666;
+  color: #ffffff;
+}
+
+.immi-payments-table th {
+  background-color: #666666;
+  color: #ffffff;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: left;
+  white-space: nowrap;
+  border-right: 1px solid #777777;
+  cursor: pointer;
+  user-select: none;
+}
+
+.immi-payments-table th:last-child {
+  border-right: none;
+}
+
+/* Active sorted column styling matching reference screenshot */
+.immi-payments-table th.col-sorted {
+  background-color: #ffffff !important;
+  color: #222222 !important;
+  border-top: 3px solid #e06d00 !important;
+  border-left: 1px solid #888888 !important;
+  border-right: 1px solid #888888 !important;
+  position: relative;
+}
+
+.immi-sort-icon {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10.5px;
+  vertical-align: middle;
+  opacity: 0.85;
+}
+
+.immi-payments-table td {
+  padding: 8px 9px;
+  border-bottom: 1px solid #e1e1e1;
+  border-right: 1px solid #f0f0f0;
+  font-size: 12px;
+  color: #333333;
+}
+
+.immi-payments-table td:last-child {
+  border-right: none;
+}
+
+.immi-payments-table tr.empty-row td {
+  text-align: center;
+  padding: 16px;
+  color: #333333;
+  font-size: 12px;
+  background-color: #ffffff;
+}
+
+.immi-payments-foot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 2px 4px 2px;
+  font-size: 12px;
+  color: #333333;
+}
+
+.immi-dt-info {
+  font-size: 12px;
+  color: #333333;
+}
+
+.immi-paginate-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.immi-paginate-btn {
+  background: #f7f7f7;
+  border: 1px solid #d4d4d4;
+  color: #777777;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 2px;
+  cursor: default;
+  font-family: inherit;
+}
+
+.immi-paginate-btn.active {
+  color: #222222;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.immi-paginate-btn.active:hover {
+  background: #e9ecef;
+}
+
+/* Centered footer in payments view */
+.immi-dashboard-footer.payments-footer {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 22px 0 14px 0;
+}
+
+.immi-dashboard-footer.payments-footer .immi-footer-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.immi-dashboard-footer.payments-footer .immi-footer-ha-badge {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+}
+
+/* Payment Receipt & Voucher details */
+.immi-receipt-card {
+  background-color: #f9fbfd;
+  border: 1px solid #c9d8e8;
+  padding: 16px;
+  border-radius: 4px;
+  margin: 12px 0;
+}
+
+.immi-receipt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #002b49;
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+
+.immi-receipt-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #002b49;
+}
+
+.immi-receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.immi-receipt-table th {
+  text-align: left;
+  padding: 6px 0;
+  width: 170px;
+  color: #555555;
+  font-weight: normal;
+}
+
+.immi-receipt-table td {
+  padding: 6px 0;
+  color: #111111;
+  font-weight: 500;
+}
+
+.immi-barcode-box {
+  background-color: #ffffff;
+  border: 1px dashed #aaaaaa;
+  padding: 10px;
+  text-align: center;
+  margin-top: 14px;
+  font-family: Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 2px;
 }

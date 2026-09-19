@@ -4,7 +4,6 @@ import Footer from "./components/Footer";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import SearchResults from "./pages/SearchResults";
-import NotFound from "./pages/NotFound";
 import VisaConditionsOverview from "./pages/VisaConditionsOverview";
 import ChangeInSituation from "./pages/ChangeInSituation";
 import WhatWeDo from "./pages/WhatWeDo";
@@ -14,11 +13,15 @@ import ImmiAccountLogin from "./pages/ImmiAccountLogin";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import UserPortal from "./pages/UserPortal";
+
+
 function App() {
   const location = useLocation();
   const isVevo = location.pathname.startsWith('/evo/firstParty');
   const isImmiLogin = location.pathname.startsWith('/lusc/login');
-  const isStandalone = isVevo || isImmiLogin;
+  const isUserPortal = location.pathname.startsWith('/user-portal');
+  const isDashboard = location.pathname.startsWith('/dashboard');
+  const isStandalone = isVevo || isImmiLogin || isUserPortal || isDashboard;
 
   return (
     <div className="app">

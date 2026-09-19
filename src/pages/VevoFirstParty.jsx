@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { HelpCircle, Calendar, Home, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  HelpCircle,
+  Calendar,
+  Home,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import html2pdf from "html2pdf.js";
 import "./vevo.css";
 import "./ess.css";
@@ -221,13 +228,39 @@ function VevoFirstParty() {
   // Add state for date suggestions
   const [dobSuggestions, setDobSuggestions] = useState([]);
   const [showDobSuggestions, setShowDobSuggestions] = useState(false);
-  
+
   // Custom calendar state
   const [showCalendarPopup, setShowCalendarPopup] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date());
 
-  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const FULL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const MONTHS = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const FULL_MONTHS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
 
   const generateCalendarGrid = () => {
     const year = calendarDate.getFullYear();
@@ -235,23 +268,33 @@ function VevoFirstParty() {
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
-    
-    const startDayOffset = firstDay === 0 ? 6 : firstDay - 1; 
-    
+
+    const startDayOffset = firstDay === 0 ? 6 : firstDay - 1;
+
     const grid = [];
     let dayCounter = 1;
     let nextMonthCounter = 1;
-    
+
     for (let row = 0; row < 6; row++) {
       const rowDays = [];
       for (let col = 0; col < 7; col++) {
         if (row === 0 && col < startDayOffset) {
-          rowDays.push({ day: daysInPrevMonth - startDayOffset + col + 1, type: 'prev', m: month - 1, y: year });
+          rowDays.push({
+            day: daysInPrevMonth - startDayOffset + col + 1,
+            type: "prev",
+            m: month - 1,
+            y: year,
+          });
         } else if (dayCounter <= daysInMonth) {
-          rowDays.push({ day: dayCounter, type: 'current', m: month, y: year });
+          rowDays.push({ day: dayCounter, type: "current", m: month, y: year });
           dayCounter++;
         } else {
-          rowDays.push({ day: nextMonthCounter, type: 'next', m: month + 1, y: year });
+          rowDays.push({
+            day: nextMonthCounter,
+            type: "next",
+            m: month + 1,
+            y: year,
+          });
           nextMonthCounter++;
         }
       }
@@ -263,58 +306,66 @@ function VevoFirstParty() {
   const handleCalendarSelect = (cell) => {
     let y = cell.y;
     let m = cell.m;
-    if (m < 0) { m = 11; y--; }
-    if (m > 11) { m = 0; y++; }
-    
-    const dateStr = `${String(cell.day).padStart(2, '0')} ${MONTHS[m]} ${y}`;
+    if (m < 0) {
+      m = 11;
+      y--;
+    }
+    if (m > 11) {
+      m = 0;
+      y++;
+    }
+
+    const dateStr = `${String(cell.day).padStart(2, "0")} ${MONTHS[m]} ${y}`;
     setDob(dateStr);
     setShowCalendarPopup(false);
   };
 
   const changeMonth = (offset) => {
-    setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + offset, 1));
+    setCalendarDate(
+      new Date(calendarDate.getFullYear(), calendarDate.getMonth() + offset, 1),
+    );
   };
 
   const handleDobChange = (e) => {
     const val = e.target.value;
     setDob(val);
-    
+
     if (!val) {
       setDobSuggestions([]);
       setShowDobSuggestions(false);
       return;
     }
 
-    const clean = val.replace(/\D/g, '');
+    const clean = val.replace(/\D/g, "");
     let sugs = [];
-    
+
     if (clean.length === 4) {
       const d1 = parseInt(clean.substring(0, 1));
       const m1 = parseInt(clean.substring(1, 2));
       const y1 = parseInt(clean.substring(2, 4));
-      
+
       if (d1 > 0 && d1 <= 9 && m1 > 0 && m1 <= 12) {
-        sugs.push(`0${d1} ${MONTHS[m1-1]} 19${y1}`);
+        sugs.push(`0${d1} ${MONTHS[m1 - 1]} 19${y1}`);
         if (d1 !== m1 && m1 <= 9) {
-          sugs.push(`0${m1} ${MONTHS[d1-1]} 19${y1}`);
+          sugs.push(`0${m1} ${MONTHS[d1 - 1]} 19${y1}`);
         }
       }
       sugs.push(val);
-      sugs.push(`${clean.substring(0,2)} 19${clean.substring(2,4)}`);
+      sugs.push(`${clean.substring(0, 2)} 19${clean.substring(2, 4)}`);
     } else if (clean.length === 6) {
       const d = parseInt(clean.substring(0, 2));
       const m = parseInt(clean.substring(2, 4));
       const y = parseInt(clean.substring(4, 6));
       if (d > 0 && d <= 31 && m > 0 && m <= 12) {
         const year = y > 30 ? `19${y}` : `20${y}`;
-        sugs.push(`${d.toString().padStart(2, '0')} ${MONTHS[m-1]} ${year}`);
+        sugs.push(`${d.toString().padStart(2, "0")} ${MONTHS[m - 1]} ${year}`);
       }
     } else if (clean.length === 8) {
       const d = parseInt(clean.substring(0, 2));
       const m = parseInt(clean.substring(2, 4));
       const y = parseInt(clean.substring(4, 8));
       if (d > 0 && d <= 31 && m > 0 && m <= 12) {
-        sugs.push(`${d.toString().padStart(2, '0')} ${MONTHS[m-1]} ${y}`);
+        sugs.push(`${d.toString().padStart(2, "0")} ${MONTHS[m - 1]} ${y}`);
       }
     }
 
@@ -322,7 +373,7 @@ function VevoFirstParty() {
     if (sugs.length === 0) {
       sugs.push(val);
     }
-    
+
     setDobSuggestions([...new Set(sugs)]);
     setShowDobSuggestions(true);
   };
@@ -381,22 +432,74 @@ function VevoFirstParty() {
     if (!visaData) return [];
 
     const standardFields = [
-      { label: "Family name", value: visaData.familyName ?? visaData.FamilyName ?? visaData.surname },
-      { label: "Given name(s)", value: visaData.givenNames ?? visaData.givenName ?? visaData.GivenNames ?? visaData.firstName },
-      { label: "Date of birth", value: formatDate(visaData.dateOfBirth ?? visaData.dob ?? visaData.DateOfBirth) },
-      { label: "Document number", value: visaData.documentNumber ?? visaData.passportNumber ?? visaData.DocumentNumber },
+      {
+        label: "Family name",
+        value: visaData.familyName ?? visaData.FamilyName ?? visaData.surname,
+      },
+      {
+        label: "Given name(s)",
+        value:
+          visaData.givenNames ??
+          visaData.givenName ??
+          visaData.GivenNames ??
+          visaData.firstName,
+      },
+      {
+        label: "Date of birth",
+        value: formatDate(
+          visaData.dateOfBirth ?? visaData.dob ?? visaData.DateOfBirth,
+        ),
+      },
+      {
+        label: "Document number",
+        value:
+          visaData.documentNumber ??
+          visaData.passportNumber ??
+          visaData.DocumentNumber,
+      },
       { label: "Nationality", value: visaData.nationality ?? visaData.country },
-      { label: "Visa class / subclass", value: visaData.visaClassSubclass ?? visaData.visaClass ?? visaData.subclass },
-      { label: "Visa applicant", value: visaData.visaApplicant ?? visaData.applicantType },
-      { label: "Visa grant date", value: formatDate(visaData.visaGrantDate ?? visaData.grantDate) },
-      { label: "Visa expiry date", value: formatDate(visaData.visaExpiryDate ?? visaData.expiryDate) },
+      {
+        label: "Visa class / subclass",
+        value:
+          visaData.visaClassSubclass ?? visaData.visaClass ?? visaData.subclass,
+      },
+      {
+        label: "Visa applicant",
+        value: visaData.visaApplicant ?? visaData.applicantType,
+      },
+      {
+        label: "Visa grant date",
+        value: formatDate(visaData.visaGrantDate ?? visaData.grantDate),
+      },
+      {
+        label: "Visa expiry date",
+        value: formatDate(visaData.visaExpiryDate ?? visaData.expiryDate),
+      },
       { label: "Visa status", value: visaData.visaStatus ?? visaData.status },
-      { label: "Visa grant number", value: visaData.visaGrantNumber ?? visaData.grantNumber ?? visaData.VisaGrantNumber },
-      { label: "Transaction reference number (TRN)", value: visaData.trn ?? visaData.TRN },
+      {
+        label: "Visa grant number",
+        value:
+          visaData.visaGrantNumber ??
+          visaData.grantNumber ??
+          visaData.VisaGrantNumber,
+      },
+      {
+        label: "Transaction reference number (TRN)",
+        value: visaData.trn ?? visaData.TRN,
+      },
       { label: "Entries allowed", value: visaData.entriesAllowed },
-      { label: "Must not arrive after", value: formatDate(visaData.mustNotArriveAfter) },
-      { label: "Enter before date", value: formatDate(visaData.enterBeforeDate) },
-      { label: "Period of stay", value: visaData.periodOfStay ?? visaData.stayPeriod },
+      {
+        label: "Must not arrive after",
+        value: formatDate(visaData.mustNotArriveAfter),
+      },
+      {
+        label: "Enter before date",
+        value: formatDate(visaData.enterBeforeDate),
+      },
+      {
+        label: "Period of stay",
+        value: visaData.periodOfStay ?? visaData.stayPeriod,
+      },
       { label: "Visa type", value: visaData.visaType },
     ];
 
@@ -450,7 +553,9 @@ function VevoFirstParty() {
       "referenceNumber",
     ]);
 
-    const filteredStandard = standardFields.filter((item) => hasValue(item.value));
+    const filteredStandard = standardFields.filter((item) =>
+      hasValue(item.value),
+    );
 
     const extraFields = Object.entries(visaData)
       .filter(
@@ -458,7 +563,7 @@ function VevoFirstParty() {
           !handledKeys.has(key) &&
           typeof val !== "object" &&
           typeof val !== "function" &&
-          hasValue(val)
+          hasValue(val),
       )
       .map(([key, val]) => ({
         label: key
@@ -473,12 +578,12 @@ function VevoFirstParty() {
   const handleViewPdf = async () => {
     if (visaData && visaData.document) {
       let doc = visaData.document;
-      
+
       // If document is an array, take the first element
       if (Array.isArray(doc) && doc.length > 0) {
         doc = doc[0];
       }
-      
+
       // If document is an object, try to extract the URL or base64 data
       if (doc && typeof doc === "object") {
         doc = doc.url || doc.data || doc.base64 || doc.file || "";
@@ -487,8 +592,8 @@ function VevoFirstParty() {
       if (typeof doc === "string" && doc) {
         if (doc.startsWith("data:")) {
           try {
-            const byteString = atob(doc.split(',')[1]);
-            const mimeString = doc.split(',')[0].split(':')[1].split(';')[0];
+            const byteString = atob(doc.split(",")[1]);
+            const mimeString = doc.split(",")[0].split(":")[1].split(";")[0];
             const ab = new ArrayBuffer(byteString.length);
             const ia = new Uint8Array(ab);
             for (let i = 0; i < byteString.length; i++) {
@@ -508,7 +613,7 @@ function VevoFirstParty() {
         return;
       }
     }
-    
+
     // Fallback to local static pdf
     window.open(visaPdf, "_blank");
   };
@@ -529,22 +634,36 @@ function VevoFirstParty() {
     }
 
     const monthMap = {
-      jan: 1, january: 1,
-      feb: 2, february: 2,
-      mar: 3, march: 3,
-      apr: 4, april: 4,
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
       may: 5,
-      jun: 6, june: 6,
-      jul: 7, july: 7,
-      aug: 8, august: 8,
-      sep: 9, sept: 9, september: 9,
-      oct: 10, october: 10,
-      nov: 11, november: 11,
-      dec: 12, december: 12,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
     };
 
     // 2. "DD Month YYYY" or "DD-Month-YYYY" (e.g. 15 May 1990, 01 Jan 2000)
-    const dmyAlphaMatch = str.match(/^(\d{1,2})[\s\-/,]+([a-zA-Z]+)[\s\-/,]+(\d{4})/);
+    const dmyAlphaMatch = str.match(
+      /^(\d{1,2})[\s\-/,]+([a-zA-Z]+)[\s\-/,]+(\d{4})/,
+    );
     if (dmyAlphaMatch) {
       const d = parseInt(dmyAlphaMatch[1], 10);
       const m = monthMap[dmyAlphaMatch[2].toLowerCase()];
@@ -555,7 +674,9 @@ function VevoFirstParty() {
     }
 
     // 3. "Month DD YYYY" or "Month DD, YYYY" (e.g. May 15, 1990)
-    const mdyAlphaMatch = str.match(/^([a-zA-Z]+)[\s\-/,]+(\d{1,2})[\s\-/,]+(\d{4})/);
+    const mdyAlphaMatch = str.match(
+      /^([a-zA-Z]+)[\s\-/,]+(\d{1,2})[\s\-/,]+(\d{4})/,
+    );
     if (mdyAlphaMatch) {
       const m = monthMap[mdyAlphaMatch[1].toLowerCase()];
       const d = parseInt(mdyAlphaMatch[2], 10);
@@ -566,7 +687,9 @@ function VevoFirstParty() {
     }
 
     // 4. "DD/MM/YYYY" or "DD-MM-YYYY" or "DD.MM.YYYY" or "DD MM YYYY"
-    const dmyNumMatch = str.match(/^(\d{1,2})[\s\-/. ]+(\d{1,2})[\s\-/. ]+(\d{4})$/);
+    const dmyNumMatch = str.match(
+      /^(\d{1,2})[\s\-/. ]+(\d{1,2})[\s\-/. ]+(\d{4})$/,
+    );
     if (dmyNumMatch) {
       const d = parseInt(dmyNumMatch[1], 10);
       const m = parseInt(dmyNumMatch[2], 10);
@@ -612,7 +735,9 @@ function VevoFirstParty() {
     const p1 = parseDateParts(d1);
     const p2 = parseDateParts(d2);
     if (!p1 || !p2) {
-      return String(d1).trim().toLowerCase() === String(d2).trim().toLowerCase();
+      return (
+        String(d1).trim().toLowerCase() === String(d2).trim().toLowerCase()
+      );
     }
     return p1.year === p2.year && p1.month === p2.month && p1.day === p2.day;
   };
@@ -701,8 +826,7 @@ function VevoFirstParty() {
         backgroundColor: "#c5cbd4",
         minHeight: "100vh",
         fontFamily: "Arial, sans-serif",
-      }}
-    >
+      }}>
       {/* HEADER */}
       <header
         style={{
@@ -713,8 +837,7 @@ function VevoFirstParty() {
           justifyContent: "space-between",
           alignItems: "center",
           borderBottom: "2px solid #ccc",
-        }}
-      >
+        }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {/* Logo */}
           <img
@@ -728,16 +851,14 @@ function VevoFirstParty() {
             display: "flex",
             flexDirection: "column",
             alignItems: "flex-end",
-          }}
-        >
+          }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               cursor: "pointer",
               fontSize: "12px",
-            }}
-          >
+            }}>
             <Home size={14} style={{ marginRight: "4px", color: "#fff" }} />
             <a href="#" style={{ color: "#fff", textDecoration: "none" }}>
               Help [on]
@@ -749,8 +870,7 @@ function VevoFirstParty() {
               fontSize: "26px",
               fontWeight: "normal",
               color: "#fff",
-            }}
-          >
+            }}>
             VEVO for Visa Holders
           </h1>
         </div>
@@ -765,8 +885,7 @@ function VevoFirstParty() {
               backgroundColor: "#fff",
               border: "1px solid #999",
               margin: "0 auto",
-            }}
-          >
+            }}>
             <div
               style={{
                 backgroundColor: "#012543",
@@ -774,8 +893,7 @@ function VevoFirstParty() {
                 padding: "6px 10px",
                 fontSize: "14px",
                 fontWeight: "bold",
-              }}
-            >
+              }}>
               Visa holder enquiry
             </div>
 
@@ -795,8 +913,7 @@ function VevoFirstParty() {
                     color: "#d00",
                     fontWeight: "bold",
                     marginBottom: "15px",
-                  }}
-                >
+                  }}>
                   {error}
                 </div>
               )}
@@ -810,8 +927,7 @@ function VevoFirstParty() {
                     <select
                       value={documentType}
                       onChange={(e) => setDocumentType(e.target.value)}
-                      style={inputStyle}
-                    >
+                      style={inputStyle}>
                       <option value="">Please choose a document type</option>
                       <option value="DFTTA">DFTTA</option>
                       <option value="ImmiCard">ImmiCard</option>
@@ -833,8 +949,7 @@ function VevoFirstParty() {
                         <select
                           value={referenceType}
                           onChange={(e) => setReferenceType(e.target.value)}
-                          style={inputStyle}
-                        >
+                          style={inputStyle}>
                           <option value="">
                             Please choose a reference type
                           </option>
@@ -853,105 +968,257 @@ function VevoFirstParty() {
                       <div style={labelStyle}>Date of birth</div>
                       <div style={inputContainerStyle}>
                         {requiredAsterisk}
-                        <div style={{ position: 'relative', display: "flex", alignItems: "center", width: "300px" }}>
+                        <div
+                          style={{
+                            position: "relative",
+                            display: "flex",
+                            alignItems: "center",
+                            width: "300px",
+                          }}>
                           <input
                             type="text"
                             value={dob}
                             onChange={handleDobChange}
-                            onFocus={() => { if(dobSuggestions.length > 0) setShowDobSuggestions(true); }}
-                            onBlur={() => setTimeout(() => setShowDobSuggestions(false), 200)}
+                            onFocus={() => {
+                              if (dobSuggestions.length > 0)
+                                setShowDobSuggestions(true);
+                            }}
+                            onBlur={() =>
+                              setTimeout(
+                                () => setShowDobSuggestions(false),
+                                200,
+                              )
+                            }
                             style={{ ...inputStyle, width: "100%" }}
                           />
                           {showDobSuggestions && dobSuggestions.length > 0 && (
-                            <div style={{
-                              position: 'absolute',
-                              top: '100%',
-                              left: 0,
-                              right: 0,
-                              backgroundColor: '#fff',
-                              border: '1px solid #ccc',
-                              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                              zIndex: 10
-                            }}>
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "100%",
+                                left: 0,
+                                right: 0,
+                                backgroundColor: "#fff",
+                                border: "1px solid #ccc",
+                                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                                zIndex: 10,
+                              }}>
                               {dobSuggestions.map((sug, idx) => (
                                 <div
                                   key={idx}
                                   onClick={() => selectDobSuggestion(sug)}
                                   style={{
-                                    padding: '4px 8px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    color: '#000'
+                                    padding: "4px 8px",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                    color: "#000",
                                   }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e6f7ff'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-                                >
+                                  onMouseEnter={(e) =>
+                                    (e.currentTarget.style.backgroundColor =
+                                      "#e6f7ff")
+                                  }
+                                  onMouseLeave={(e) =>
+                                    (e.currentTarget.style.backgroundColor =
+                                      "#fff")
+                                  }>
                                   {sug}
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-                        <div style={{ position: 'relative' }}>
-                          <div 
-                            onClick={() => setShowCalendarPopup(!showCalendarPopup)} 
-                            style={{ border: '1px solid #999', backgroundColor: '#f5f5f5', padding: '3px', marginLeft: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                          >
+                        <div style={{ position: "relative" }}>
+                          <div
+                            onClick={() =>
+                              setShowCalendarPopup(!showCalendarPopup)
+                            }
+                            style={{
+                              border: "1px solid #999",
+                              backgroundColor: "#f5f5f5",
+                              padding: "3px",
+                              marginLeft: "4px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                            }}>
                             <Calendar size={16} color="#012543" />
                           </div>
-                          
+
                           {showCalendarPopup && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', backgroundColor: '#fff', border: '1px solid #999', boxShadow: '0 2px 5px rgba(0,0,0,0.2)', width: '300px', zIndex: 100 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px', backgroundColor: '#f2f2f2', borderBottom: '1px solid #ccc' }}>
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                  <select 
-                                    value={calendarDate.getMonth()} 
-                                    onChange={e => setCalendarDate(new Date(calendarDate.getFullYear(), parseInt(e.target.value), 1))}
-                                    style={{ padding: '2px', border: '1px solid #999', borderRadius: '3px' }}
-                                  >
-                                    {FULL_MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "100%",
+                                right: 0,
+                                marginTop: "4px",
+                                backgroundColor: "#fff",
+                                border: "1px solid #999",
+                                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
+                                width: "300px",
+                                zIndex: 100,
+                              }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  padding: "5px",
+                                  backgroundColor: "#f2f2f2",
+                                  borderBottom: "1px solid #ccc",
+                                }}>
+                                <div style={{ display: "flex", gap: "4px" }}>
+                                  <select
+                                    value={calendarDate.getMonth()}
+                                    onChange={(e) =>
+                                      setCalendarDate(
+                                        new Date(
+                                          calendarDate.getFullYear(),
+                                          parseInt(e.target.value),
+                                          1,
+                                        ),
+                                      )
+                                    }
+                                    style={{
+                                      padding: "2px",
+                                      border: "1px solid #999",
+                                      borderRadius: "3px",
+                                    }}>
+                                    {FULL_MONTHS.map((m, i) => (
+                                      <option key={i} value={i}>
+                                        {m}
+                                      </option>
+                                    ))}
                                   </select>
-                                  <input 
-                                    type="text" 
-                                    value={calendarDate.getFullYear()} 
-                                    onChange={e => {
+                                  <input
+                                    type="text"
+                                    value={calendarDate.getFullYear()}
+                                    onChange={(e) => {
                                       const y = parseInt(e.target.value);
-                                      if(!isNaN(y)) setCalendarDate(new Date(y, calendarDate.getMonth(), 1));
+                                      if (!isNaN(y))
+                                        setCalendarDate(
+                                          new Date(
+                                            y,
+                                            calendarDate.getMonth(),
+                                            1,
+                                          ),
+                                        );
                                     }}
-                                    style={{ width: '50px', padding: '2px', border: '1px solid #999', borderRadius: '3px' }}
+                                    style={{
+                                      width: "50px",
+                                      padding: "2px",
+                                      border: "1px solid #999",
+                                      borderRadius: "3px",
+                                    }}
                                   />
                                 </div>
-                                <div style={{ display: 'flex', gap: '2px' }}>
-                                  <button type="button" onClick={() => changeMonth(-1)} style={{ padding: '2px', backgroundColor: '#fff', border: '1px solid #999', cursor: 'pointer' }}><ChevronLeft size={14} /></button>
-                                  <button type="button" onClick={() => setCalendarDate(new Date())} style={{ padding: '2px', backgroundColor: '#fff', border: '1px solid #999', cursor: 'pointer' }}><Calendar size={14} /></button>
-                                  <button type="button" onClick={() => changeMonth(1)} style={{ padding: '2px', backgroundColor: '#fff', border: '1px solid #999', cursor: 'pointer' }}><ChevronRight size={14} /></button>
-                                  <button type="button" onClick={() => setShowCalendarPopup(false)} style={{ padding: '2px', backgroundColor: '#fff', border: '1px solid #999', cursor: 'pointer' }}><X size={14} /></button>
+                                <div style={{ display: "flex", gap: "2px" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => changeMonth(-1)}
+                                    style={{
+                                      padding: "2px",
+                                      backgroundColor: "#fff",
+                                      border: "1px solid #999",
+                                      cursor: "pointer",
+                                    }}>
+                                    <ChevronLeft size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCalendarDate(new Date())}
+                                    style={{
+                                      padding: "2px",
+                                      backgroundColor: "#fff",
+                                      border: "1px solid #999",
+                                      cursor: "pointer",
+                                    }}>
+                                    <Calendar size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => changeMonth(1)}
+                                    style={{
+                                      padding: "2px",
+                                      backgroundColor: "#fff",
+                                      border: "1px solid #999",
+                                      cursor: "pointer",
+                                    }}>
+                                    <ChevronRight size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCalendarPopup(false)}
+                                    style={{
+                                      padding: "2px",
+                                      backgroundColor: "#fff",
+                                      border: "1px solid #999",
+                                      cursor: "pointer",
+                                    }}>
+                                    <X size={14} />
+                                  </button>
                                 </div>
                               </div>
-                              <table style={{ width: '100%', textAlign: 'center', borderCollapse: 'collapse', fontSize: '13px' }}>
+                              <table
+                                style={{
+                                  width: "100%",
+                                  textAlign: "center",
+                                  borderCollapse: "collapse",
+                                  fontSize: "13px",
+                                }}>
                                 <thead>
                                   <tr>
-                                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
-                                      <th key={i} style={{ padding: '4px', fontWeight: 'bold', borderBottom: '1px dotted #000' }}>{d}</th>
-                                    ))}
+                                    {["M", "T", "W", "T", "F", "S", "S"].map(
+                                      (d, i) => (
+                                        <th
+                                          key={i}
+                                          style={{
+                                            padding: "4px",
+                                            fontWeight: "bold",
+                                            borderBottom: "1px dotted #000",
+                                          }}>
+                                          {d}
+                                        </th>
+                                      ),
+                                    )}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {generateCalendarGrid().map((row, i) => (
                                     <tr key={i}>
                                       {row.map((cell, j) => (
-                                        <td 
-                                          key={j} 
-                                          onClick={() => handleCalendarSelect(cell)}
-                                          style={{ 
-                                            padding: '4px', 
-                                            cursor: 'pointer',
-                                            color: cell.type === 'current' ? '#000' : '#4986e7',
-                                            border: cell.day === new Date().getDate() && cell.type === 'current' && calendarDate.getMonth() === new Date().getMonth() && calendarDate.getFullYear() === new Date().getFullYear() ? '1px solid #d00' : '1px solid transparent'
+                                        <td
+                                          key={j}
+                                          onClick={() =>
+                                            handleCalendarSelect(cell)
+                                          }
+                                          style={{
+                                            padding: "4px",
+                                            cursor: "pointer",
+                                            color:
+                                              cell.type === "current" ?
+                                                "#000"
+                                              : "#4986e7",
+                                            border:
+                                              (
+                                                cell.day ===
+                                                  new Date().getDate() &&
+                                                cell.type === "current" &&
+                                                calendarDate.getMonth() ===
+                                                  new Date().getMonth() &&
+                                                calendarDate.getFullYear() ===
+                                                  new Date().getFullYear()
+                                              ) ?
+                                                "1px solid #d00"
+                                              : "1px solid transparent",
                                           }}
-                                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e6f7ff'}
-                                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                        >
+                                          onMouseEnter={(e) =>
+                                            (e.currentTarget.style.backgroundColor =
+                                              "#e6f7ff")
+                                          }
+                                          onMouseLeave={(e) =>
+                                            (e.currentTarget.style.backgroundColor =
+                                              "transparent")
+                                          }>
                                           {cell.day}
                                         </td>
                                       ))}
@@ -987,8 +1254,7 @@ function VevoFirstParty() {
                         <select
                           value={country}
                           onChange={(e) => setCountry(e.target.value)}
-                          style={inputStyle}
-                        >
+                          style={inputStyle}>
                           <option value="">Country</option>
                           {COUNTRIES.map((c) => (
                             <option key={c} value={c}>
@@ -1007,8 +1273,7 @@ function VevoFirstParty() {
                           ...inputContainerStyle,
                           flexDirection: "column",
                           alignItems: "flex-start",
-                        }}
-                      >
+                        }}>
                         <a
                           href="#"
                           style={{
@@ -1016,8 +1281,7 @@ function VevoFirstParty() {
                             color: "#012543",
                             textDecoration: "underline",
                             marginBottom: "5px",
-                          }}
-                        >
+                          }}>
                           View Terms and Conditions
                         </a>
                         <div style={{ display: "flex", alignItems: "center" }}>
@@ -1046,8 +1310,7 @@ function VevoFirstParty() {
                     backgroundColor: "#f2f2f2",
                     marginTop: "20px",
                     padding: "0.5rm",
-                  }}
-                >
+                  }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -1065,8 +1328,7 @@ function VevoFirstParty() {
                       border: "1px solid #999",
                       cursor: "pointer",
                       fontSize: "13px",
-                    }}
-                  >
+                    }}>
                     Clear
                   </button>
                   <button
@@ -1078,8 +1340,7 @@ function VevoFirstParty() {
                       border: "1px solid #999",
                       cursor: loading ? "not-allowed" : "pointer",
                       fontSize: "13px",
-                    }}
-                  >
+                    }}>
                     {loading ? "Submitting..." : "Submit"}
                   </button>
                 </div>
@@ -1097,8 +1358,7 @@ function VevoFirstParty() {
               border: "1px solid #999",
               maxWidth: "1000px",
               margin: "0 auto",
-            }}
-          >
+            }}>
             <div style={{ padding: "20px" }}>
               <div
                 style={{
@@ -1107,8 +1367,7 @@ function VevoFirstParty() {
                   borderBottom: "1px solid #ccc",
                   paddingBottom: "10px",
                   marginBottom: "20px",
-                }}
-              >
+                }}>
                 <button
                   type="button"
                   onClick={() => setVisaData(null)}
@@ -1117,8 +1376,7 @@ function VevoFirstParty() {
                     backgroundColor: "#f5f5f5",
                     border: "1px solid #999",
                     cursor: "pointer",
-                  }}
-                >
+                  }}>
                   New enquiry
                 </button>
                 <div>
@@ -1130,8 +1388,7 @@ function VevoFirstParty() {
                       backgroundColor: "#e2e2e2",
                       border: "1px solid #999",
                       cursor: "pointer",
-                    }}
-                  >
+                    }}>
                     View as PDF
                   </button>
                 </div>
@@ -1143,8 +1400,7 @@ function VevoFirstParty() {
                   textAlign: "left",
                   borderCollapse: "collapse",
                   fontSize: "14px",
-                }}
-              >
+                }}>
                 <tbody>
                   <tr>
                     <td style={{ width: "30%", padding: "8px 10px" }}>
