@@ -38,7 +38,7 @@ const getInitialPaymentData = () => ({
   name: "",
   referenceNumber: generate8CharRef(),
   transactionDate: new Date().toISOString().split("T")[0],
-  issuingOffice: "Online Payments Centre",
+  issuingOffice: "New Delhi",
   internalRef: "",
   currency: "AUD",
   amount: "",
@@ -833,8 +833,8 @@ function Dashboard() {
       transactionDate: rawDateVal,
       date: formattedDate,
       issuingOffice:
-        paymentData.issuingOffice.trim() || "Online Payments Centre",
-      office: paymentData.issuingOffice.trim() || "Online Payments Centre",
+        paymentData.issuingOffice.trim() || "New Delhi",
+      office: paymentData.issuingOffice.trim() || "New Delhi",
       internalRef:
         paymentData.internalRef.trim() ||
         "AU-" + Math.floor(1000 + Math.random() * 9000),
@@ -1788,18 +1788,20 @@ function Dashboard() {
                       list="issuingOffices"
                       value={paymentData.issuingOffice}
                       onChange={handlePaymentChange}
-                      placeholder="e.g. Online Payments Centre"
+                      placeholder="e.g. New Delhi"
                       required
                     />
                     <datalist id="issuingOffices">
-                      <option value="Online Payments Centre" />
+                      <option value="New Delhi" />
+                      <option value="Sydney" />
+                      <option value="Melbourne" />
+                      <option value="Brisbane" />
+                      <option value="Perth" />
+                      <option value="London" />
+                      <option value="Beijing" />
+                      <option value="Dubai" />
                       <option value="Department of Home Affairs" />
                       <option value="Canberra Processing Centre" />
-                      <option value="Sydney CBD Registry" />
-                      <option value="Melbourne Visa Centre" />
-                      <option value="Brisbane Service Centre" />
-                      <option value="Perth Office" />
-                      <option value="Paper Lodgement Registry" />
                     </datalist>
                   </div>
 

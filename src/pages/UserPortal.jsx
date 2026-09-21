@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import "./immiaccount.css";
 import logoHA from "../assets/images/logo-ha.png";
 
-function UserPortal() {
+function UserPortal({ initialSection }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   const role = localStorage.getItem("role");
@@ -41,8 +42,14 @@ function UserPortal() {
     status: "",
   });
 
-  // Section Navigation: 'applications' or 'manage-payments'
-  const [activeSection, setActiveSection] = useState("applications");
+  // Section Navigation: 'applications', 'manage-payments', or 'make-payment-section'
+  const [activeSection, setActiveSection] = useState(() => {
+    if (initialSection) return initialSection;
+    if (typeof window !== "undefined" && window.location.pathname.endsWith("/payment")) {
+      return "make-payment-section";
+    }
+    return "applications";
+  });
 
   // Payments State
   const [payments, setPayments] = useState(() => {
@@ -151,14 +158,16 @@ function UserPortal() {
                 givenNames: p.givenNames || "",
                 familyName: p.familyName || "",
                 date:
-                  p.date && p.date !== "—" ? p.date
-                  : p.transactionDate ?
+                  p.transactionDate ?
                     new Date(p.transactionDate).toLocaleDateString("en-GB", {
                       day: "2-digit",
                       month: "short",
                       year: "numeric",
                     })
+                  : p.date && p.date !== "—" ?
+                    p.date
                   : "—",
+                transactionDate: p.transactionDate || null,
                 rawDate: p.transactionDate || p.rawDate,
                 office: p.issuingOffice || p.office || "Online Payments Centre",
                 internalRef: p.internalRef || "—",
@@ -240,6 +249,76 @@ function UserPortal() {
     amount: "190.00",
   });
   const [prePaySuccessVoucher, setPrePaySuccessVoucher] = useState(null);
+
+  // Make Payments Section State (Exact match to Home Affairs Pre-pay reference)
+  const [makePaymentData, setMakePaymentData] = useState({
+    paymentId: null,
+    paymentRef: "HA84920155",
+    paymentType: "Pre-pay Visa Application Charge Paper Application",
+    processingOffice: "New Delhi",
+    familyName: "Smith",
+    givenNames: "John",
+    dateOfBirth: "26 Aug 1995",
+    visaSubclass: "600 Visitor",
+    amount: "",
+    backendAmount: "",
+    isCalculated: false,
+    comments: "cscsc",
+    status: "Pending",
+  });
+  const [isEditingPaymentDetails, setIsEditingPaymentDetails] = useState(false);
+  const [paymentEditForm, setPaymentEditForm] = useState({
+    paymentId: null,
+    paymentRef: "HA84920155",
+    paymentType: "Pre-pay Visa Application Charge Paper Application",
+    processingOffice: "New Delhi",
+    familyName: "Smith",
+    givenNames: "John",
+    dateOfBirth: "26 Aug 1995",
+    visaSubclass: "600 Visitor",
+    amount: "",
+    backendAmount: "",
+    isCalculated: false,
+    comments: "cscsc",
+    status: "Pending",
+  });
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [paymentCompletedReceipt, setPaymentCompletedReceipt] = useState(null);
+  const [calcNote, setCalcNote] = useState("");
+  const [showHelpTooltip, setShowHelpTooltip] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("card");
+  const [cardDetails, setCardDetails] = useState({
+    cardNumber: "",
+    expiryMonth: "08",
+    expiryYear: "28",
+    nameOnCard: "",
+    csc: "",
+  });
+
+  const formatDateDisplay = (dob) => {
+    if (!dob) return "26 Aug 1995";
+    if (/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/.test(dob)) return dob;
+    const d = new Date(dob);
+    if (!isNaN(d.getTime())) {
+      const day = d.getDate();
+      const month = d.toLocaleString("en-GB", { month: "short" });
+      const year = d.getFullYear();
+      return `${day} ${month} ${year}`;
+    }
+    return dob;
+  };
+
+  const calculateFeeForSubclass = (subclass) => {
+    const text = (subclass || "").toLowerCase();
+    if (text.includes("600") || text.includes("visitor")) return "145.00";
+    if (text.includes("500") || text.includes("student")) return "710.00";
+    if (text.includes("482") || text.includes("skill shortage")) return "1455.00";
+    if (text.includes("189") || text.includes("190")) return "4640.00";
+    if (text.includes("820") || text.includes("309") || text.includes("partner")) return "8850.00";
+    if (text.includes("417") || text.includes("working holiday")) return "635.00";
+    if (text.includes("485") || text.includes("graduate")) return "1895.00";
+    return "145.00";
+  };
 
   // Handle Logout
   const handleLogout = () => {
@@ -652,25 +731,421 @@ function UserPortal() {
     storedUsername,
   ]);
 
-  // Open Make Payment modal pre-filled for a specific pending payment
+  // Open Make Payment section page (Redirects to Make Payments section matching reference)
   const handleOpenMakePayment = (payment) => {
-    setPaymentSuccessData(null);
-    setInvoiceForm({
-      targetPaymentId: payment._id || payment.id || null,
-      invoiceNumber: payment.ref || payment.referenceNumber || "",
-      clientId:
-        payment.internalRef && payment.internalRef !== "—" ?
-          payment.internalRef
+    let target = payment || {};
+    let linkedVisa = null;
+    if (target.visaId) {
+      const vId =
+        typeof target.visaId === "object" ?
+          target.visaId._id || target.visaId.id
+        : target.visaId;
+      linkedVisa = allVisas.find(
+        (v) =>
+          v._id === vId ||
+          v.id === vId ||
+          (v.trn && v.trn === target.internalRef),
+      );
+    }
+    if (!linkedVisa && allVisas.length > 0) {
+      linkedVisa = allVisas[0];
+    }
+
+    let famName = target.familyName || linkedVisa?.familyName;
+    let givName = target.givenNames || linkedVisa?.givenNames;
+    if (!famName || !givName) {
+      if (target.name && target.name !== "—") {
+        const parts = target.name.trim().split(/\s+/);
+        if (parts.length > 1) {
+          givName = givName || parts.slice(0, -1).join(" ");
+          famName = famName || parts.slice(-1)[0];
+        } else {
+          famName = famName || parts[0];
+          givName = givName || "John";
+        }
+      }
+    }
+    famName = famName || "Smith";
+    givName = givName || "John";
+
+    const dob = formatDateDisplay(linkedVisa?.dateOfBirth || "1995-08-26");
+
+    let subclassVal = "600 Visitor";
+    if (linkedVisa?.visaClassSubclass) {
+      subclassVal = linkedVisa.visaClassSubclass;
+      if (
+        !subclassVal.includes("600") &&
+        !subclassVal.includes("Visitor") &&
+        !subclassVal.includes("500") &&
+        !subclassVal.includes("482")
+      ) {
+        subclassVal =
+          `${linkedVisa.visaClassSubclass} ${linkedVisa.visaType || ""}`.trim();
+      }
+    } else if (
+      target.type &&
+      (target.type.includes("Visitor") || target.type.includes("600"))
+    ) {
+      subclassVal = "600 Visitor";
+    }
+
+    const prepayData = {
+      paymentId: target.id || target._id || null,
+      paymentRef:
+        target.ref ||
+        target.referenceNumber ||
+        "HA" + Math.floor(10000000 + Math.random() * 90000000),
+      paymentType: "Pre-pay Visa Application Charge Paper Application",
+      processingOffice:
+        target.office && target.office !== "Online Payments Centre" ?
+          target.office
+        : "New Delhi",
+      familyName: famName,
+      givenNames: givName,
+      dateOfBirth: dob,
+      visaSubclass: subclassVal || "600 Visitor",
+      amount: "",
+      backendAmount:
+        target.amount !== undefined && target.amount !== null ?
+          String(target.amount)
         : "",
-      name: getPaymentDisplayName(payment),
-      email: payment.payerEmail || "",
-      amount: String(payment.amount || "385.00"),
-      cardNumber: "",
-      cardExpiry: "",
-      cardCvv: "",
-      paymentMethod: "credit-card",
-    });
-    setShowPayInvoiceModal(true);
+      isCalculated: false,
+      comments:
+        target.comments ||
+        (target.internalRef && target.internalRef !== "—" ?
+          target.internalRef
+        : "cscsc"),
+      status: target.status || "Pending",
+    };
+
+    setMakePaymentData(prepayData);
+    setPaymentEditForm(prepayData);
+    setIsEditingPaymentDetails(false);
+    setPaymentCompletedReceipt(null);
+    setCalcNote("");
+    setActiveSection("make-payment-section");
+    navigate(
+      `/user-portal/payment?paymentId=${target.id || target._id || ""}`,
+    );
+  };
+
+  // Synchronize state when navigating directly to /user-portal/payment
+  useEffect(() => {
+    if (
+      location.pathname.endsWith("/payment") ||
+      initialSection === "make-payment-section"
+    ) {
+      setActiveSection("make-payment-section");
+      const searchParams = new URLSearchParams(location.search);
+      const qPayId = searchParams.get("paymentId");
+      let matchedPay = null;
+      if (qPayId && payments.length > 0) {
+        matchedPay = payments.find(
+          (p) => String(p.id || p._id) === String(qPayId),
+        );
+      }
+      if (!matchedPay && payments.length > 0) {
+        matchedPay =
+          payments.find(
+            (p) => (p.status || "").toLowerCase() === "pending",
+          ) || payments[0];
+      }
+
+      const activeVisa = allVisas.length > 0 ? allVisas[0] : null;
+      let famName = matchedPay?.familyName || activeVisa?.familyName;
+      let givName = matchedPay?.givenNames || activeVisa?.givenNames;
+      if (!famName || !givName) {
+        if (matchedPay?.name && matchedPay.name !== "—") {
+          const parts = matchedPay.name.trim().split(/\s+/);
+          if (parts.length > 1) {
+            givName = givName || parts.slice(0, -1).join(" ");
+            famName = famName || parts.slice(-1)[0];
+          } else {
+            famName = famName || parts[0];
+            givName = givName || "John";
+          }
+        }
+      }
+      famName = famName || "Smith";
+      givName = givName || "John";
+
+      const dob = formatDateDisplay(activeVisa?.dateOfBirth || "1995-08-26");
+      let subVal = "600 Visitor";
+      if (activeVisa?.visaClassSubclass) {
+        subVal = activeVisa.visaClassSubclass;
+        if (
+          !subVal.includes("600") &&
+          !subVal.includes("Visitor") &&
+          !subVal.includes("500") &&
+          !subVal.includes("482")
+        ) {
+          subVal =
+            `${activeVisa.visaClassSubclass} ${activeVisa.visaType || ""}`.trim();
+        }
+      }
+
+      const initialData = {
+        paymentId: matchedPay?.id || matchedPay?._id || null,
+        paymentRef:
+          matchedPay?.ref ||
+          matchedPay?.referenceNumber ||
+          "HA" + Math.floor(10000000 + Math.random() * 90000000),
+        paymentType: "Pre-pay Visa Application Charge Paper Application",
+        processingOffice:
+          matchedPay?.office &&
+          matchedPay.office !== "Online Payments Centre" ?
+            matchedPay.office
+          : "New Delhi",
+        familyName: famName,
+        givenNames: givName,
+        dateOfBirth: dob,
+        visaSubclass: subVal || "600 Visitor",
+        amount: "",
+        backendAmount:
+          matchedPay?.amount !== undefined && matchedPay?.amount !== null ?
+            String(matchedPay.amount)
+          : "",
+        isCalculated: false,
+        comments:
+          matchedPay?.comments ||
+          (matchedPay?.internalRef && matchedPay.internalRef !== "—" ?
+            matchedPay.internalRef
+          : "cscsc"),
+        status: matchedPay?.status || "Pending",
+      };
+
+      setMakePaymentData(initialData);
+      setPaymentEditForm(initialData);
+    }
+  }, [location.pathname, location.search, payments, allVisas, initialSection]);
+
+  const handleCalculateAmount = async () => {
+    const targetId = makePaymentData.paymentId;
+    let backendAmount = makePaymentData.backendAmount;
+
+    // Fetch directly from backend API for this specific payment record
+    if (targetId && token) {
+      try {
+        const response = await fetch(
+          `${API_URL}/api/payments/${targetId}?origin=au`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (response.ok) {
+          const resData = await response.json();
+          const pData = resData.payment || resData.data || resData;
+          if (pData && pData.amount !== undefined && pData.amount !== null) {
+            backendAmount = String(pData.amount);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching payment amount from backend:", err);
+      }
+    }
+
+    // Fallback to payments array in state if needed
+    if (!backendAmount && targetId) {
+      const found = payments.find(
+        (p) => String(p.id || p._id) === String(targetId),
+      );
+      if (found && found.amount !== undefined && found.amount !== null) {
+        backendAmount = String(found.amount);
+      }
+    }
+
+    if (!backendAmount && makePaymentData.backendAmount) {
+      backendAmount = String(makePaymentData.backendAmount);
+    }
+
+    // If still empty, check first available payment with an amount
+    if (!backendAmount && payments.length > 0) {
+      const firstWithAmt = payments.find((p) => p.amount);
+      if (firstWithAmt) backendAmount = String(firstWithAmt.amount);
+    }
+
+    const finalAmount =
+      backendAmount ? parseFloat(backendAmount).toFixed(2) : "0.00";
+
+    setMakePaymentData((prev) => ({
+      ...prev,
+      amount: finalAmount,
+      backendAmount: finalAmount,
+      isCalculated: true,
+    }));
+    setPaymentEditForm((prev) => ({
+      ...prev,
+      amount: finalAmount,
+      backendAmount: finalAmount,
+      isCalculated: true,
+    }));
+    setCalcNote(`Amount from payment record: $${finalAmount} AUD`);
+    setTimeout(() => setCalcNote(""), 4000);
+  };
+
+  const handleSavePaymentDetails = async () => {
+    setMakePaymentData({ ...paymentEditForm });
+    setIsEditingPaymentDetails(false);
+
+    const targetId = paymentEditForm.paymentId;
+    if (targetId) {
+      setPayments((prev) =>
+        prev.map((p) => {
+          if ((p.id || p._id) === targetId) {
+            return {
+              ...p,
+              givenNames: paymentEditForm.givenNames,
+              familyName: paymentEditForm.familyName,
+              name: `${paymentEditForm.givenNames} ${paymentEditForm.familyName}`,
+              amount: paymentEditForm.amount,
+              office: paymentEditForm.processingOffice,
+              type: paymentEditForm.paymentType,
+              comments: paymentEditForm.comments,
+            };
+          }
+          return p;
+        }),
+      );
+
+      try {
+        await fetch(`${API_URL}/api/payments/${targetId}?origin=au`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            givenNames: paymentEditForm.givenNames,
+            familyName: paymentEditForm.familyName,
+            amount: paymentEditForm.amount,
+            issuingOffice: paymentEditForm.processingOffice,
+            visaType: paymentEditForm.visaSubclass,
+            internalRef: paymentEditForm.comments,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to update payment on backend:", err);
+      }
+    }
+  };
+
+  const handleSubmitPrePayment = () => {
+    if (selectedPaymentMethod === "card") {
+      if (!cardDetails.cardNumber.trim()) {
+        alert("Please enter a valid debit/credit card number.");
+        return;
+      }
+      if (!cardDetails.nameOnCard.trim()) {
+        alert("Please enter the name on your card.");
+        return;
+      }
+      if (!cardDetails.csc.trim()) {
+        alert("Please enter the Card Security Code (CSC).");
+        return;
+      }
+    }
+
+    setIsPaymentProcessing(true);
+    setTimeout(async () => {
+      setIsPaymentProcessing(false);
+      let targetId = makePaymentData.paymentId;
+      if (!targetId && makePaymentData.paymentRef) {
+        const found = payments.find(
+          (p) =>
+            p.ref === makePaymentData.paymentRef ||
+            p.referenceNumber === makePaymentData.paymentRef,
+        );
+        if (found) targetId = found.id || found._id;
+      }
+
+      const now = new Date();
+      const formattedDateOnly = now.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+      const formattedNow =
+        formattedDateOnly +
+        " " +
+        now.toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      const nowIso = now.toISOString();
+
+      if (targetId) {
+        try {
+          const res = await fetch(`${API_URL}/api/payments/${targetId}?origin=au`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              status: "paid",
+              transactionDate: nowIso,
+            }),
+          });
+          if (!res.ok) {
+            console.error(
+              "Failed to update payment status on backend:",
+              res.status,
+              await res.text(),
+            );
+          }
+        } catch (err) {
+          console.error("Failed to update payment status on backend:", err);
+        }
+      }
+
+      // Update state and localStorage immediately
+      setPayments((prev) => {
+        const next = prev.map((p) => {
+          const isMatch =
+            (targetId && (p.id === targetId || p._id === targetId)) ||
+            (makePaymentData.paymentRef &&
+              (p.ref === makePaymentData.paymentRef ||
+                p.referenceNumber === makePaymentData.paymentRef));
+          if (isMatch) {
+            return {
+              ...p,
+              status: "Paid",
+              date: formattedDateOnly,
+              transactionDate: nowIso,
+              rawDate: nowIso,
+            };
+          }
+          return p;
+        });
+        try {
+          localStorage.setItem("au_payments", JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+
+      setMakePaymentData((prev) => ({
+        ...prev,
+        status: "Paid",
+      }));
+
+      setPaymentCompletedReceipt({
+        receiptNumber:
+          "RC" + Math.floor(100000000 + Math.random() * 900000000),
+        voucherNumber:
+          "VCH-" + Math.floor(10000000 + Math.random() * 90000000),
+        ref: makePaymentData.paymentRef,
+        payerName: `${makePaymentData.givenNames} ${makePaymentData.familyName}`,
+        cardMask:
+          selectedPaymentMethod === "card" ?
+            `Card ending in ${cardDetails.cardNumber.slice(-4) || "8821"}`
+          : selectedPaymentMethod.toUpperCase(),
+        date: formattedNow,
+        amount: parseFloat(makePaymentData.amount || 145).toFixed(2),
+        subclass: makePaymentData.visaSubclass,
+        office: makePaymentData.processingOffice,
+        comments: makePaymentData.comments,
+      });
+    }, 1000);
   };
 
   // Handle Pay Invoice Submit
@@ -689,18 +1164,20 @@ function UserPortal() {
     setTimeout(async () => {
       setIsProcessingPayment(false);
       const targetId = invoiceForm.targetPaymentId;
+      const now = new Date();
+      const formattedDateOnly = now.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
       const formattedNow =
-        new Date().toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        }) +
+        formattedDateOnly +
         " " +
-        new Date().toLocaleTimeString("en-GB", {
+        now.toLocaleTimeString("en-GB", {
           hour: "2-digit",
           minute: "2-digit",
         });
-      const nowIso = new Date().toISOString();
+      const nowIso = now.toISOString();
 
       if (targetId) {
         // Update on backend if target payment has a valid ID
@@ -730,7 +1207,8 @@ function UserPortal() {
               return {
                 ...p,
                 status: "Paid",
-                date: formattedNow,
+                date: formattedDateOnly,
+                transactionDate: nowIso,
                 rawDate: nowIso,
               };
             }
@@ -919,8 +1397,9 @@ function UserPortal() {
             </button>
           </div>
           <h1>
-            {activeSection === "manage-payments" ?
-              "Online Payments"
+            {activeSection === "manage-payments" ||
+            activeSection === "make-payment-section" ?
+              "Online payments"
             : "ImmiAccount"}
           </h1>
         </div>
@@ -932,14 +1411,17 @@ function UserPortal() {
           <button
             type="button"
             className={`immi-nav-tab ${activeSection === "applications" ? "active" : ""}`}
-            onClick={() => setActiveSection("applications")}>
+            onClick={() => {
+              setActiveSection("applications");
+              navigate("/user-portal");
+            }}>
             My applications
           </button>
 
           <div className="immi-nav-dropdown-wrapper">
             <button
               type="button"
-              className={`immi-nav-tab ${activeSection === "manage-payments" ? "active" : ""}`}
+              className={`immi-nav-tab ${activeSection === "manage-payments" || activeSection === "make-payment-section" ? "active" : ""}`}
               onClick={(e) => toggleDropdown("payments", e)}>
               My payments <span className="caret">▾</span>
             </button>
@@ -952,6 +1434,7 @@ function UserPortal() {
                   onClick={() => {
                     setOpenDropdown(null);
                     setActiveSection("manage-payments");
+                    navigate("/user-portal");
                   }}>
                   Manage Payments
                 </button>
@@ -959,15 +1442,9 @@ function UserPortal() {
                   type="button"
                   onClick={() => {
                     setOpenDropdown(null);
-                    setPaymentSuccessData(null);
-                    setInvoiceForm((prev) => ({
-                      ...prev,
-                      name: paymentUserFullName,
-                      email: "",
-                    }));
-                    setShowPayInvoiceModal(true);
+                    handleOpenMakePayment(payments[0] || {});
                   }}>
-                  Pay an invoice
+                  Make Payments
                 </button>
               </div>
             )}
@@ -1046,7 +1523,1070 @@ function UserPortal() {
 
       {/* 3. Main Dashboard Body */}
       <main className="immi-dashboard-wrapper">
-        {activeSection === "manage-payments" ?
+        {activeSection === "make-payment-section" ?
+          <div className="immi-make-payment-wrapper">
+            {/* Dark navy subheader bar with "Make Payments" */}
+            <div className="immi-make-payment-banner">Make Payments</div>
+
+            <div className="immi-make-payment-card">
+              {paymentCompletedReceipt ?
+                <div>
+                  <div style={{ textAlign: "center", padding: "10px 0 16px 0" }}>
+                    <div
+                      style={{
+                        width: "48px",
+                        height: "48px",
+                        borderRadius: "50%",
+                        backgroundColor: "#e8f5e9",
+                        color: "#2e7d32",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        margin: "0 auto 10px auto",
+                        fontSize: "24px",
+                        fontWeight: "bold",
+                      }}>
+                      ✓
+                    </div>
+                    <h3
+                      style={{
+                        margin: "0 0 6px 0",
+                        color: "#002b49",
+                        fontSize: "18px",
+                      }}>
+                      Payment Successful &amp; Pre-payment Lodged
+                    </h3>
+                    <p
+                      style={{ margin: 0, color: "#555555", fontSize: "12px" }}>
+                      Your pre-payment charge has been successfully processed by
+                      the Australian Department of Home Affairs.
+                    </p>
+                  </div>
+
+                  <div className="immi-receipt-card">
+                    <div className="immi-receipt-header">
+                      <span className="immi-receipt-title">
+                        Official Payment Receipt &amp; Pre-pay Paper Voucher
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          color: "#2e7d32",
+                        }}>
+                        APPROVED
+                      </span>
+                    </div>
+
+                    <table className="immi-receipt-table">
+                      <tbody>
+                        <tr>
+                          <th>Receipt Number:</th>
+                          <td>
+                            <strong>
+                              {paymentCompletedReceipt.receiptNumber}
+                            </strong>
+                          </td>
+                        </tr>
+                        <tr>
+                          <th>Pre-pay Voucher Ref:</th>
+                          <td>
+                            <strong>
+                              {paymentCompletedReceipt.voucherNumber}
+                            </strong>
+                          </td>
+                        </tr>
+                        <tr>
+                          <th>Application Reference (TRN / Inv):</th>
+                          <td>{paymentCompletedReceipt.ref}</td>
+                        </tr>
+                        <tr>
+                          <th>Main Applicant:</th>
+                          <td>{paymentCompletedReceipt.payerName}</td>
+                        </tr>
+                        <tr>
+                          <th>Visa Subclass:</th>
+                          <td>{paymentCompletedReceipt.subclass}</td>
+                        </tr>
+                        <tr>
+                          <th>Processing Office:</th>
+                          <td>{paymentCompletedReceipt.office}</td>
+                        </tr>
+                        <tr>
+                          <th>Transaction Date / Time:</th>
+                          <td>{paymentCompletedReceipt.date}</td>
+                        </tr>
+                        <tr>
+                          <th>Payment Amount:</th>
+                          <td>
+                            <strong
+                              style={{ fontSize: "15px", color: "#002b49" }}>
+                              ${paymentCompletedReceipt.amount} AUD
+                            </strong>
+                          </td>
+                        </tr>
+                        <tr>
+                          <th>Validity:</th>
+                          <td>30 Days from date of payment</td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    <div className="immi-barcode-box">
+                      ||| | ||||| ||| |||| || ||||||| | ||||| |||
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          color: "#666",
+                          marginTop: "4px",
+                        }}>
+                        *{paymentCompletedReceipt.voucherNumber}*
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className="immi-prepay-actions"
+                    style={{ borderTop: "none" }}>
+                    <button
+                      type="button"
+                      className="immi-btn-back-action"
+                      onClick={() => {
+                        setActiveSection("manage-payments");
+                        navigate("/user-portal");
+                      }}>
+                      ← View in Transaction History
+                    </button>
+                    <button
+                      type="button"
+                      className="immi-btn-pay-action"
+                      onClick={() => window.print()}>
+                      🖨 Print / Save Receipt
+                    </button>
+                  </div>
+                </div>
+              : <div>
+                  <div className="immi-prepay-alert-red">
+                    Application must be lodged within 30 days of making the
+                    payment.
+                  </div>
+
+                  <table className="immi-prepay-table">
+                    <tbody>
+                      <tr>
+                        <td className="label-cell">
+                          What payment are you making?
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <select
+                              className="immi-prepay-select"
+                              value={paymentEditForm.paymentType}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  paymentType: e.target.value,
+                                })
+                              }>
+                              <option value="Pre-pay Visa Application Charge Paper Application">
+                                Pre-pay Visa Application Charge Paper
+                                Application
+                              </option>
+                              <option value="Non-Internet Application Charge (NIAC)">
+                                Non-Internet Application Charge (NIAC)
+                              </option>
+                              <option value="Sponsorship / Nomination Fee">
+                                Sponsorship / Nomination Fee
+                              </option>
+                              <option value="Citizenship Application Fee">
+                                Citizenship Application Fee
+                              </option>
+                            </select>
+                          : <div className="immi-prepay-text-val">
+                              <span>{makePaymentData.paymentType}</span>
+                              <span
+                                style={{ fontSize: "10px", color: "#555" }}>
+                                ▼
+                              </span>
+                              <button
+                                type="button"
+                                className="immi-prepay-help-icon"
+                                title="Pre-pay Visa Application Charge Paper Application help"
+                                onClick={() =>
+                                  setShowHelpTooltip(!showHelpTooltip)
+                                }>
+                                ?
+                              </button>
+                              {showHelpTooltip && (
+                                <div className="immi-prepay-tooltip">
+                                  Pre-payment charge for visa applications
+                                  lodged using physical paper forms.
+                                </div>
+                              )}
+                            </div>
+                          }
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Processing Office
+                          <span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <select
+                              className="immi-prepay-select"
+                              value={paymentEditForm.processingOffice}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  processingOffice: e.target.value,
+                                })
+                              }>
+                              <option value="New Delhi">New Delhi</option>
+                              <option value="Sydney">Sydney</option>
+                              <option value="Melbourne">Melbourne</option>
+                              <option value="Brisbane">Brisbane</option>
+                              <option value="Perth">Perth</option>
+                              <option value="London">London</option>
+                              <option value="Beijing">Beijing</option>
+                              <option value="Dubai">Dubai</option>
+                              <option value="Online Payments Centre">
+                                Online Payments Centre
+                              </option>
+                            </select>
+                          : <div className="immi-prepay-text-val">
+                              <span>{makePaymentData.processingOffice}</span>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  color: "#555",
+                                  marginLeft: "24px",
+                                }}>
+                                ▼
+                              </span>
+                            </div>
+                          }
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td
+                          className="label-cell applicant-header-cell"
+                          colSpan="2">
+                          Main Applicant
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Family Name<span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              value={paymentEditForm.familyName}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  familyName: e.target.value,
+                                })
+                              }
+                            />
+                          : <span>{makePaymentData.familyName}</span>}
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Given Name<span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              value={paymentEditForm.givenNames}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  givenNames: e.target.value,
+                                })
+                              }
+                            />
+                          : <span>{makePaymentData.givenNames}</span>}
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Date of birth<span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              placeholder="e.g. 26 Aug 1995"
+                              value={paymentEditForm.dateOfBirth}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  dateOfBirth: e.target.value,
+                                })
+                              }
+                            />
+                          : <div className="immi-prepay-text-val">
+                              <span>{makePaymentData.dateOfBirth}</span>
+                              <span
+                                style={{
+                                  fontSize: "14px",
+                                  marginLeft: "14px",
+                                }}
+                                title="Date of birth">
+                                📅
+                              </span>
+                            </div>
+                          }
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Visa subclass
+                          <span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <select
+                              className="immi-prepay-select"
+                              value={paymentEditForm.visaSubclass}
+                              onChange={(e) => {
+                                const sub = e.target.value;
+                                const amt = calculateFeeForSubclass(sub);
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  visaSubclass: sub,
+                                  amount: amt,
+                                });
+                              }}>
+                              <option value="600 Visitor">600 Visitor</option>
+                              <option value="500 Student">500 Student</option>
+                              <option value="482 Temporary Skill Shortage">
+                                482 Temporary Skill Shortage
+                              </option>
+                              <option value="189 Skilled Independent">
+                                189 Skilled Independent
+                              </option>
+                              <option value="190 Skilled Nominated">
+                                190 Skilled Nominated
+                              </option>
+                              <option value="309 Partner (Provisional)">
+                                309 Partner (Provisional)
+                              </option>
+                              <option value="820 Partner (Temporary)">
+                                820 Partner (Temporary)
+                              </option>
+                              <option value="417 Working Holiday">
+                                417 Working Holiday
+                              </option>
+                              <option value="485 Temporary Graduate">
+                                485 Temporary Graduate
+                              </option>
+                            </select>
+                          : <div className="immi-prepay-text-val">
+                              <span>{makePaymentData.visaSubclass}</span>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  color: "#555",
+                                  marginLeft: "28px",
+                                }}>
+                                ▼
+                              </span>
+                            </div>
+                          }
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">
+                          Amount (AUD)<span className="immi-prepay-req">*</span>
+                        </td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}>
+                              <input
+                                type="text"
+                                className="immi-prepay-input"
+                                style={{ width: "90px", minWidth: "90px" }}
+                                value={paymentEditForm.amount}
+                                onChange={(e) =>
+                                  setPaymentEditForm({
+                                    ...paymentEditForm,
+                                    amount: e.target.value,
+                                  })
+                                }
+                              />
+                              <button
+                                type="button"
+                                className="immi-prepay-calc-btn"
+                                onClick={handleCalculateAmount}>
+                                Calculate
+                              </button>
+                            </div>
+                          : <div className="immi-prepay-text-val">
+                              {makePaymentData.isCalculated &&
+                              makePaymentData.amount ?
+                                <span
+                                  style={{
+                                    fontWeight: "500",
+                                    marginRight: "6px",
+                                  }}>
+                                  {parseFloat(
+                                    makePaymentData.amount,
+                                  ).toFixed(2)}
+                                </span>
+                              : null}
+                              <button
+                                type="button"
+                                className="immi-prepay-calc-btn"
+                                style={{
+                                  marginLeft:
+                                    (
+                                      makePaymentData.isCalculated &&
+                                      makePaymentData.amount
+                                    ) ?
+                                      "6px"
+                                    : "0px",
+                                }}
+                                onClick={handleCalculateAmount}>
+                                Calculate
+                              </button>
+                              {calcNote && (
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    color: "#00703c",
+                                    marginLeft: "8px",
+                                    fontWeight: "bold",
+                                  }}>
+                                  ✓ {calcNote}
+                                </span>
+                              )}
+                            </div>
+                          }
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="label-cell">Comments</td>
+                        <td className="value-cell">
+                          {isEditingPaymentDetails ?
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              value={paymentEditForm.comments}
+                              onChange={(e) =>
+                                setPaymentEditForm({
+                                  ...paymentEditForm,
+                                  comments: e.target.value,
+                                })
+                              }
+                            />
+                          : <span>{makePaymentData.comments || "cscsc"}</span>}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div className="immi-prepay-notes">
+                    <p>
+                      To estimate the amount for the pre-payment select the Visa
+                      subclass then click on the Calculate button.
+                    </p>
+                    <p>
+                      The non-internet application charge must be paid for
+                      certain visa subclasses if you do not lodge your visa
+                      application online. Certain exemptions may apply depending
+                      on the visa subclass, for further information go to the{" "}
+                      <a
+                        href="https://immi.homeaffairs.gov.au/help-support/applying-online-or-on-paper/on-paper"
+                        target="_blank"
+                        rel="noopener noreferrer">
+                        Non-internet application charge site
+                      </a>
+                    </p>
+                  </div>
+
+                  {/* Upper Section Edit Button on Right (Matching reference screenshot) */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      marginTop: "16px",
+                      paddingTop: "10px",
+                    }}>
+                    {isEditingPaymentDetails ?
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button
+                          type="button"
+                          className="immi-btn-classic"
+                          onClick={() => {
+                            setIsEditingPaymentDetails(false);
+                            setPaymentEditForm({ ...makePaymentData });
+                          }}>
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="immi-btn-classic"
+                          style={{ fontWeight: "bold", color: "#004b87" }}
+                          onClick={handleSavePaymentDetails}>
+                          Save Changes
+                        </button>
+                      </div>
+                    : <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => {
+                          setPaymentEditForm({ ...makePaymentData });
+                          setIsEditingPaymentDetails(true);
+                        }}>
+                        Edit
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+
+            {/* 2. Payment Options Section Below (Matching Reference Screenshot) */}
+            {!paymentCompletedReceipt && (
+              <div className="immi-payment-options-card">
+                <div className="immi-options-title">Payment options</div>
+
+                <div className="immi-options-notice">
+                  Your decision to pay will be final, your payment cannot be
+                  disputed, even if you change your mind.
+                </div>
+
+                <div className="immi-options-radios-row">
+                  <span style={{ fontSize: "12px", color: "#222" }}>
+                    Select a payment option
+                  </span>
+                  <label className="immi-options-radio-label">
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="card"
+                      checked={selectedPaymentMethod === "card"}
+                      onChange={() => setSelectedPaymentMethod("card")}
+                    />
+                    <span>Debit/credit card</span>
+                  </label>
+                  <label className="immi-options-radio-label">
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="paypal"
+                      checked={selectedPaymentMethod === "paypal"}
+                      onChange={() => setSelectedPaymentMethod("paypal")}
+                    />
+                    <span>PayPal</span>
+                  </label>
+                  <label className="immi-options-radio-label">
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="unionpay"
+                      checked={selectedPaymentMethod === "unionpay"}
+                      onChange={() => setSelectedPaymentMethod("unionpay")}
+                    />
+                    <span>UnionPay</span>
+                  </label>
+                </div>
+
+                {selectedPaymentMethod === "card" ?
+                  <div>
+                    <div className="immi-options-subhead">
+                      Payment by debit/credit card
+                    </div>
+
+                    {/* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */}
+                    <div className="immi-card-badges-row">
+                      {/* Visa */}
+                      <span className="immi-card-badge" title="Visa">
+                        <svg
+                          width="44"
+                          height="20"
+                          viewBox="0 0 100 32"
+                          fill="none">
+                          <rect
+                            width="100"
+                            height="32"
+                            rx="3"
+                            fill="#ffffff"
+                          />
+                          <path
+                            d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M62.6 8.3C61.4 7.8 59.5 7.4 57.3 7.4C52.1 7.4 48.4 10.2 48.4 14.1C48.4 17 51 18.6 53 19.6C55 20.6 55.7 21.2 55.7 22.1C55.7 23.5 54 24.1 52.5 24.1C50.4 24.1 49.3 23.8 47.7 23.1L47 22.8L46.2 26.6C47.4 27.2 49.7 27.6 52 27.6C57.6 27.6 61.2 24.8 61.2 20.8C61.2 17.5 59.1 16 56.6 14.8C54.8 13.9 53.7 13.3 53.7 12.3C53.7 11.2 55.1 10.7 56.4 10.7C57.9 10.7 59.2 11 60.4 11.5L60.9 11.7L62.6 8.3Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M70.8 24H75.1L71.4 8H67.4C66.5 8 65.7 8.5 65.4 9.3L58.8 24H63.4L64.3 21.5H69.9L70.8 24ZM65.5 18.1C66.1 16.5 67.4 12.9 67.4 12.9C67.4 12.9 67.8 11.9 68 11.3L69.2 18.1H65.5Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M34.7 8H30.4C29.4 8 28.7 8.5 28.3 9.4L20.2 24H24.8L25.7 21.5H31.3L32.2 24H36.8L34.7 8ZM22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                            fill="#F7B600"
+                          />
+                          <path
+                            d="M22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                            fill="#1A1F71"
+                          />
+                        </svg>
+                      </span>
+
+                      {/* Mastercard */}
+                      <span className="immi-card-badge" title="Mastercard">
+                        <svg width="44" height="20" viewBox="0 0 70 40">
+                          <rect
+                            width="70"
+                            height="40"
+                            rx="3"
+                            fill="#0A0A0A"
+                          />
+                          <circle cx="27" cy="20" r="14" fill="#EB001B" />
+                          <circle
+                            cx="43"
+                            cy="20"
+                            r="14"
+                            fill="#F79E1B"
+                            fillOpacity="0.9"
+                          />
+                        </svg>
+                      </span>
+
+                      {/* American Express */}
+                      <span className="immi-card-badge" title="American Express">
+                        <svg width="44" height="20" viewBox="0 0 60 40">
+                          <rect
+                            width="60"
+                            height="40"
+                            rx="3"
+                            fill="#0077A6"
+                          />
+                          <text
+                            x="30"
+                            y="24"
+                            fill="#ffffff"
+                            fontSize="9"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif"
+                            textAnchor="middle">
+                            AMEX
+                          </text>
+                        </svg>
+                      </span>
+
+                      {/* Diners Club */}
+                      <span className="immi-card-badge" title="Diners Club">
+                        <svg width="44" height="20" viewBox="0 0 65 40">
+                          <rect
+                            width="65"
+                            height="40"
+                            rx="3"
+                            fill="#ffffff"
+                            stroke="#cbd5e1"
+                          />
+                          <circle cx="20" cy="20" r="11" fill="#004A97" />
+                          <path
+                            d="M20 12C24.4 12 28 15.6 28 20C28 24.4 24.4 28 20 28V12Z"
+                            fill="#ffffff"
+                          />
+                          <text
+                            x="35"
+                            y="23"
+                            fill="#004A97"
+                            fontSize="7.5"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif">
+                            Diners
+                          </text>
+                        </svg>
+                      </span>
+
+                      {/* JCB */}
+                      <span className="immi-card-badge" title="JCB">
+                        <svg width="44" height="20" viewBox="0 0 60 40">
+                          <rect
+                            width="60"
+                            height="40"
+                            rx="3"
+                            fill="#ffffff"
+                            stroke="#cbd5e1"
+                          />
+                          <rect
+                            x="10"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="2"
+                            fill="#003580"
+                          />
+                          <rect
+                            x="24"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="2"
+                            fill="#D31145"
+                          />
+                          <rect
+                            x="38"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="2"
+                            fill="#008037"
+                          />
+                          <text
+                            x="16"
+                            y="23"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            textAnchor="middle">
+                            J
+                          </text>
+                          <text
+                            x="30"
+                            y="23"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            textAnchor="middle">
+                            C
+                          </text>
+                          <text
+                            x="44"
+                            y="23"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            textAnchor="middle">
+                            B
+                          </text>
+                        </svg>
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "11.5px",
+                        color: "#333333",
+                        marginBottom: "12px",
+                      }}>
+                      Required field{" "}
+                      <span className="immi-prepay-req">*</span>
+                    </div>
+
+                    {/* Card input fields matching screenshot */}
+                    <table className="immi-prepay-table">
+                      <tbody>
+                        <tr>
+                          <td className="label-cell">
+                            Debit/credit card number{" "}
+                            <span className="immi-prepay-req">*</span>
+                          </td>
+                          <td className="value-cell">
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              placeholder="required"
+                              maxLength="19"
+                              style={{ width: "210px" }}
+                              value={cardDetails.cardNumber}
+                              onChange={(e) =>
+                                setCardDetails({
+                                  ...cardDetails,
+                                  cardNumber: e.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td className="label-cell">
+                            Expiry date (MM/YY){" "}
+                            <span className="immi-prepay-req">*</span>
+                          </td>
+                          <td className="value-cell">
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}>
+                              <select
+                                className="immi-prepay-select"
+                                style={{ width: "65px" }}
+                                value={cardDetails.expiryMonth}
+                                onChange={(e) =>
+                                  setCardDetails({
+                                    ...cardDetails,
+                                    expiryMonth: e.target.value,
+                                  })
+                                }>
+                                {Array.from({ length: 12 }, (_, i) => {
+                                  const val = String(i + 1).padStart(
+                                    2,
+                                    "0",
+                                  );
+                                  return (
+                                    <option key={val} value={val}>
+                                      {val}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              <select
+                                className="immi-prepay-select"
+                                style={{ width: "65px" }}
+                                value={cardDetails.expiryYear}
+                                onChange={(e) =>
+                                  setCardDetails({
+                                    ...cardDetails,
+                                    expiryYear: e.target.value,
+                                  })
+                                }>
+                                {Array.from({ length: 12 }, (_, i) => {
+                                  const yr = String(25 + i);
+                                  return (
+                                    <option key={yr} value={yr}>
+                                      {yr}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td className="label-cell">
+                            Name on debit/credit card{" "}
+                            <span className="immi-prepay-req">*</span>
+                          </td>
+                          <td className="value-cell">
+                            <input
+                              type="text"
+                              className="immi-prepay-input"
+                              placeholder="required"
+                              style={{ width: "280px" }}
+                              value={cardDetails.nameOnCard}
+                              onChange={(e) =>
+                                setCardDetails({
+                                  ...cardDetails,
+                                  nameOnCard: e.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td className="label-cell">
+                            Card security code (CSC){" "}
+                            <span className="immi-prepay-req">*</span>
+                          </td>
+                          <td className="value-cell">
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "10px",
+                              }}>
+                              <input
+                                type="password"
+                                className="immi-prepay-input"
+                                placeholder="required"
+                                maxLength="4"
+                                style={{ width: "70px", minWidth: "70px" }}
+                                value={cardDetails.csc}
+                                onChange={(e) =>
+                                  setCardDetails({
+                                    ...cardDetails,
+                                    csc: e.target.value,
+                                  })
+                                }
+                              />
+                              <a
+                                href="#csc"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  alert(
+                                    "Card Security Code (CSC):\nFor Visa, MasterCard, JCB, and Diners Club, the CSC is the 3-digit number printed on the signature strip on the back of your card.\nFor American Express, it is the 4-digit code printed on the front above the account number.",
+                                  );
+                                }}
+                                style={{
+                                  color: "#004b87",
+                                  textDecoration: "underline",
+                                  fontSize: "11.5px",
+                                }}>
+                                What is a CSC?
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td className="label-cell">
+                            Credit card surcharge (AUD)
+                          </td>
+                          <td className="value-cell">
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}>
+                              <span style={{ fontWeight: "bold" }}>$</span>
+                              <input
+                                type="text"
+                                readOnly
+                                className="immi-prepay-input"
+                                style={{
+                                  width: "75px",
+                                  minWidth: "75px",
+                                  backgroundColor: "#eef5fc",
+                                  color: "#004b87",
+                                  fontWeight: "bold",
+                                }}
+                                value="0.00"
+                              />
+                              <a
+                                href="#surcharge"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  alert(
+                                    "Credit Card Surcharge:\nA surcharge is applied to payments made by credit card to reflect the costs of processing credit card transactions. Debit cards incur a $0.00 surcharge.",
+                                  );
+                                }}
+                                style={{
+                                  color: "#004b87",
+                                  textDecoration: "underline",
+                                  fontSize: "11.5px",
+                                  marginLeft: "6px",
+                                }}>
+                                What is the surcharge?
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td
+                            className="label-cell"
+                            style={{
+                              fontWeight: "bold",
+                              paddingTop: "8px",
+                            }}>
+                            Total payment amount (AUD)
+                          </td>
+                          <td
+                            className="value-cell"
+                            style={{ paddingTop: "8px" }}>
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}>
+                              <span style={{ fontWeight: "bold" }}>$</span>
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "13px",
+                                }}>
+                                {makePaymentData.isCalculated &&
+                                makePaymentData.amount ?
+                                  parseFloat(
+                                    makePaymentData.amount,
+                                  ).toFixed(2)
+                                : "0.00"}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                : <div
+                    style={{
+                      padding: "16px 0",
+                      fontSize: "12px",
+                      color: "#444",
+                    }}>
+                    <p>
+                      You will be securely redirected to{" "}
+                      <strong>
+                        {selectedPaymentMethod === "paypal" ?
+                          "PayPal"
+                        : "UnionPay"}
+                      </strong>{" "}
+                      to complete your payment of{" "}
+                      <strong>
+                        $
+                        {makePaymentData.isCalculated && makePaymentData.amount ?
+                          parseFloat(makePaymentData.amount).toFixed(2)
+                        : parseFloat(makePaymentData.backendAmount || 0).toFixed(2)
+                        }{" "}
+                        AUD
+                      </strong>
+                      .
+                    </p>
+                  </div>
+                }
+
+                {/* Bottom actions: Cancel on left, Submit on right */}
+                <div className="immi-options-actions">
+                  <button
+                    type="button"
+                    className="immi-btn-classic"
+                    onClick={() => {
+                      setActiveSection("manage-payments");
+                      navigate("/user-portal");
+                    }}>
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    className="immi-btn-classic"
+                    style={{ fontWeight: "bold", minWidth: "75px" }}
+                    disabled={isPaymentProcessing}
+                    onClick={handleSubmitPrePayment}>
+                    {isPaymentProcessing ? "Processing..." : "Submit"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        : activeSection === "manage-payments" ?
           <div className="immi-dashboard-card immi-payments-card">
             {/* Subheader Banner */}
             <div className="immi-summary-banner">
@@ -1061,17 +2601,7 @@ function UserPortal() {
                     type="button"
                     className="immi-gov-btn"
                     onClick={() => {
-                      setPrePaySuccessVoucher(null);
-                      const defaultGiven =
-                        allVisas.length > 0 ? allVisas[0].givenNames || "" : "";
-                      const defaultFamily =
-                        allVisas.length > 0 ? allVisas[0].familyName || "" : "";
-                      setPrePayForm((prev) => ({
-                        ...prev,
-                        givenNames: prev.givenNames || defaultGiven,
-                        familyName: prev.familyName || defaultFamily,
-                      }));
-                      setShowPrePayModal(true);
+                      handleOpenMakePayment(payments[0] || {});
                     }}>
                     <svg
                       viewBox="0 0 24 24"
@@ -1404,37 +2934,6 @@ function UserPortal() {
                                 justifyContent: "center",
                                 gap: "6px",
                               }}>
-                              <select
-                                className="immi-history-select"
-                                style={{
-                                  height: "24px",
-                                  fontSize: "11.5px",
-                                  padding: "1px 6px",
-                                  borderRadius: "2px",
-                                  borderColor: "#7f9db9",
-                                  color: "#004b87",
-                                  backgroundColor: "#ffffff",
-                                  cursor: "pointer",
-                                }}
-                                value=""
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (val === "make_payment") {
-                                    handleOpenMakePayment(p);
-                                  } else if (val === "view_receipt") {
-                                    setPaymentReceipt(p);
-                                  }
-                                }}>
-                                <option value="">Select payment</option>
-                                {(p.status || "").toLowerCase() === "pending" ?
-                                  <option value="make_payment">
-                                    Make payment
-                                  </option>
-                                : <option value="view_receipt">
-                                    View receipt
-                                  </option>
-                                }
-                              </select>
                               {(p.status || "").toLowerCase() === "pending" ?
                                 <button
                                   type="button"
@@ -1774,7 +3273,7 @@ function UserPortal() {
 
         {/* Footer */}
         <footer
-          className={`immi-dashboard-footer ${activeSection === "manage-payments" ? "payments-footer" : ""}`}>
+          className={`immi-dashboard-footer ${activeSection === "manage-payments" || activeSection === "make-payment-section" ? "payments-footer" : ""}`}>
           <ul className="immi-footer-links">
             <li>
               <a href="#accessibility" onClick={(e) => e.preventDefault()}>
@@ -1797,7 +3296,6 @@ function UserPortal() {
               </a>
             </li>
           </ul>
-          <div className="immi-footer-ha-badge">HA</div>
         </footer>
       </main>
 

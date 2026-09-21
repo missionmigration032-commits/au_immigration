@@ -55,6 +55,14 @@ function App() {
               </ProtectedRoute>
             } 
           />
+          <Route 
+            path="/user-portal/payment" 
+            element={
+              <ProtectedRoute allowedRoles={['user']}>
+                <UserPortal initialSection="make-payment-section" />
+              </ProtectedRoute>
+            } 
+          />
           
           {/* Unimplemented nav routes → redirect to home */}
           <Route path="/entering-and-leaving-australia/*" element={<Navigate to="/" replace />} />
