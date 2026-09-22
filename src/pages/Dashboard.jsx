@@ -85,6 +85,29 @@ function Dashboard() {
   const [usersList, setUsersList] = useState([]);
   const [visasList, setVisasList] = useState([]);
 
+  // Companies state
+  const [companiesList, setCompaniesList] = useState([]);
+  const [companyFormData, setCompanyFormData] = useState({
+    name: "",
+  });
+  const [companySearch, setCompanySearch] = useState("");
+  const [editingCompany, setEditingCompany] = useState(null);
+  const [companyAlert, setCompanyAlert] = useState(null);
+  const [isCompanySubmitting, setIsCompanySubmitting] = useState(false);
+
+  // Offer Letters state
+  const [offerLettersList, setOfferLettersList] = useState([]);
+  const [offerLetterFormData, setOfferLetterFormData] = useState({
+    companyId: "",
+    userId: "",
+    refrenceNumber: "",
+  });
+  const [offerLetterSearch, setOfferLetterSearch] = useState("");
+  const [offerLetterCompanyFilter, setOfferLetterCompanyFilter] = useState("all");
+  const [editingOfferLetter, setEditingOfferLetter] = useState(null);
+  const [offerLetterAlert, setOfferLetterAlert] = useState(null);
+  const [isOfferLetterSubmitting, setIsOfferLetterSubmitting] = useState(false);
+
   const fetchVisas = async () => {
     try {
       const response = await fetch(`${API_URL}/api/visas?origin=au`, {
@@ -150,11 +173,59 @@ function Dashboard() {
     }
   };
 
+  const fetchCompanies = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/companies?origin=au`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.companies)) {
+          setCompaniesList(data.companies);
+        } else if (Array.isArray(data)) {
+          setCompaniesList(data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch companies:", error);
+    }
+  };
+
+  const fetchOfferLetters = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/offer-letters?origin=au`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.offerLetters)) {
+          setOfferLettersList(data.offerLetters);
+        } else if (Array.isArray(data)) {
+          setOfferLettersList(data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch offer letters:", error);
+    }
+  };
+
   useEffect(() => {
     if (role === "admin" || role === "employe") {
       fetchUsers();
       fetchVisas();
       fetchPayments();
+      if (role === "admin") {
+        fetchCompanies();
+        fetchOfferLetters();
+      }
     }
   }, [role, token]);
 
@@ -1196,6 +1267,713 @@ function Dashboard() {
     );
   };
 
+  // Helper origin badge
+  const renderOriginBadge = (origin) => {
+    const code = (origin || "").toLowerCase();
+    const label = origin ? origin.toUpperCase() : "AU";
+    let flag = "🇦🇺";
+    if (code === "nz") flag = "🇳🇿";
+    if (code === "ca") flag = "🇨🇦";
+    return (
+      <span className={`origin-badge origin-badge-${code || "au"}`}>
+        {flag} {label}
+      </span>
+    );
+  };
+
+  const copyToClipboard = (text, label = "Text") => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      alert(`${label} copied to clipboard!`);
+    }
+  };
+
+  // Company handlers
+  const handleCreateCompany = async (e) => {
+    e.preventDefault();
+    if (!companyFormData.name.trim()) {
+      setCompanyAlert({ type: "danger", message: "Company name is required." });
+      return;
+    }
+    setIsCompanySubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/api/companies?origin=au`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: companyFormData.name.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setCompanyAlert({ type: "success", message: "Company created successfully!" });
+        setCompanyFormData({ name: "" });
+        fetchCompanies();
+      } else {
+        setCompanyAlert({ type: "danger", message: data.message || "Failed to create company" });
+      }
+    } catch (error) {
+      setCompanyAlert({ type: "danger", message: "Network error creating company" });
+    } finally {
+      setIsCompanySubmitting(false);
+    }
+  };
+
+  const handleUpdateCompany = async (e) => {
+    e.preventDefault();
+    if (!editingCompany || !editingCompany.name.trim()) {
+      alert("Company name is required.");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/api/companies/${editingCompany._id}?origin=au`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editingCompany.name.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert("Company updated successfully!");
+        setEditingCompany(null);
+        fetchCompanies();
+      } else {
+        alert(data.message || "Failed to update company");
+      }
+    } catch (error) {
+      alert("Network error updating company");
+    }
+  };
+
+  const handleDeleteCompany = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete company "${name || id}"?`)) return;
+    try {
+      const response = await fetch(`${API_URL}/api/companies/${id}?origin=au`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert("Company deleted successfully!");
+        fetchCompanies();
+      } else {
+        alert(data.message || "Failed to delete company");
+      }
+    } catch (error) {
+      alert("Network error deleting company");
+    }
+  };
+
+  // Offer Letter handlers
+  const handleGenerateOfferLetterRef = () => {
+    const ref = `OL-AU-${generate8CharRef()}`;
+    setOfferLetterFormData((prev) => ({ ...prev, refrenceNumber: ref }));
+  };
+
+  const handleCreateOfferLetter = async (e) => {
+    e.preventDefault();
+    if (!offerLetterFormData.companyId) {
+      setOfferLetterAlert({ type: "danger", message: "Please select a company." });
+      return;
+    }
+    if (!offerLetterFormData.userId) {
+      setOfferLetterAlert({ type: "danger", message: "Please select a user account." });
+      return;
+    }
+    if (!offerLetterFormData.refrenceNumber.trim()) {
+      setOfferLetterAlert({ type: "danger", message: "Reference number is required." });
+      return;
+    }
+    setIsOfferLetterSubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/api/offer-letters?origin=au`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          companyId: offerLetterFormData.companyId,
+          userId: offerLetterFormData.userId,
+          refrenceNumber: offerLetterFormData.refrenceNumber.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setOfferLetterAlert({ type: "success", message: "Offer letter created successfully!" });
+        setOfferLetterFormData({
+          companyId: "",
+          userId: "",
+          refrenceNumber: "",
+        });
+        fetchOfferLetters();
+      } else {
+        setOfferLetterAlert({ type: "danger", message: data.message || "Failed to create offer letter" });
+      }
+    } catch (error) {
+      setOfferLetterAlert({ type: "danger", message: "Network error creating offer letter" });
+    } finally {
+      setIsOfferLetterSubmitting(false);
+    }
+  };
+
+  const handleUpdateOfferLetter = async (e) => {
+    e.preventDefault();
+    if (!editingOfferLetter || !editingOfferLetter.refrenceNumber.trim()) {
+      alert("Reference number is required.");
+      return;
+    }
+    const compId = editingOfferLetter.companyId?._id || editingOfferLetter.companyId;
+    const usrId = editingOfferLetter.userId?._id || editingOfferLetter.userId;
+    try {
+      const response = await fetch(`${API_URL}/api/offer-letters/${editingOfferLetter._id}?origin=au`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          companyId: compId,
+          userId: usrId,
+          refrenceNumber: editingOfferLetter.refrenceNumber.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert("Offer letter updated successfully!");
+        setEditingOfferLetter(null);
+        fetchOfferLetters();
+      } else {
+        alert(data.message || "Failed to update offer letter");
+      }
+    } catch (error) {
+      alert("Network error updating offer letter");
+    }
+  };
+
+  const handleDeleteOfferLetter = async (id, refNo) => {
+    if (!window.confirm(`Are you sure you want to delete offer letter "${refNo || id}"?`)) return;
+    try {
+      const response = await fetch(`${API_URL}/api/offer-letters/${id}?origin=au`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert("Offer letter deleted successfully!");
+        fetchOfferLetters();
+      } else {
+        alert(data.message || "Failed to delete offer letter");
+      }
+    } catch (error) {
+      alert("Network error deleting offer letter");
+    }
+  };
+
+  // Render Companies Table
+  const renderCompaniesTable = () => {
+    const filteredCompanies = companiesList.filter((comp) => {
+      const q = companySearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        (comp.name && comp.name.toLowerCase().includes(q)) ||
+        (comp._id && comp._id.toLowerCase().includes(q));
+      return matchesSearch;
+    });
+
+    return (
+      <div className="card">
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "15px",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}>
+          <div>
+            <h2 style={{ margin: 0, borderBottom: "none", paddingBottom: 0 }}>
+              Registered Companies ({companiesList.length})
+            </h2>
+            <div
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-secondary)",
+                marginTop: "4px",
+              }}>
+              Origin: <strong>AU</strong> &nbsp;|&nbsp; Total: <strong>{companiesList.length}</strong>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+              onClick={fetchCompanies}>
+              🔄 Refresh Companies
+            </button>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search companies..."
+              value={companySearch}
+              onChange={(e) => setCompanySearch(e.target.value)}
+              style={{
+                width: "200px",
+                padding: "6px 12px",
+                fontSize: "0.85rem",
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="table-container">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Company Name</th>
+                <th>Origin</th>
+                <th>Company ID</th>
+                <th>Created Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCompanies.length > 0 ? (
+                filteredCompanies.map((c) => (
+                  <tr key={c._id}>
+                    <td style={{ fontWeight: "600" }}>{c.name}</td>
+                    <td>{renderOriginBadge(c.origin)}</td>
+                    <td>
+                      <span className="ref-badge">
+                        {c._id.slice(-8)}
+                        <button
+                          type="button"
+                          className="copy-icon-btn"
+                          title="Copy Full ID"
+                          onClick={() => copyToClipboard(c._id, "Company ID")}>
+                          📋
+                        </button>
+                      </span>
+                    </td>
+                    <td
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--text-secondary)",
+                      }}>
+                      {c.createdAt ? (
+                        new Date(c.createdAt).toLocaleDateString()
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setEditingCompany({ ...c })}>
+                          Edit
+                        </button>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={() => handleDeleteCompany(c._id, c.name)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan="5"
+                    style={{
+                      textAlign: "center",
+                      padding: "24px",
+                      color: "var(--text-secondary)",
+                    }}>
+                    {companiesList.length === 0
+                      ? "No companies registered yet. Use the form above to add a company."
+                      : "No companies match the search criteria."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Offer Letters Table
+  const renderOfferLettersTable = () => {
+    const filteredOfferLetters = offerLettersList.filter((ol) => {
+      const olCompanyId = ol.companyId?._id || ol.companyId || "";
+      const matchesCompany =
+        offerLetterCompanyFilter === "all"
+          ? true
+          : olCompanyId === offerLetterCompanyFilter;
+
+      const q = offerLetterSearch.toLowerCase().trim();
+      const refNo = (ol.refrenceNumber || "").toLowerCase();
+      const compName = (ol.companyId?.name || "").toLowerCase();
+      const usrName = (ol.userId?.username || "").toLowerCase();
+      const matchesSearch =
+        !q ||
+        refNo.includes(q) ||
+        compName.includes(q) ||
+        usrName.includes(q) ||
+        (ol._id && ol._id.toLowerCase().includes(q));
+
+      return matchesCompany && matchesSearch;
+    });
+
+    return (
+      <div className="card">
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "15px",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}>
+          <div>
+            <h2 style={{ margin: 0, borderBottom: "none", paddingBottom: 0 }}>
+              Offer Letters ({offerLettersList.length})
+            </h2>
+            <div
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-secondary)",
+                marginTop: "4px",
+              }}>
+              Total Issued Letters: <strong>{offerLettersList.length}</strong>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+              onClick={fetchOfferLetters}>
+              🔄 Refresh Letters
+            </button>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search ref #, user, company..."
+              value={offerLetterSearch}
+              onChange={(e) => setOfferLetterSearch(e.target.value)}
+              style={{
+                width: "210px",
+                padding: "6px 12px",
+                fontSize: "0.85rem",
+              }}
+            />
+            <select
+              className="form-control"
+              value={offerLetterCompanyFilter}
+              onChange={(e) => setOfferLetterCompanyFilter(e.target.value)}
+              style={{
+                width: "160px",
+                padding: "6px 10px",
+                fontSize: "0.85rem",
+              }}>
+              <option value="all">All Companies</option>
+              {companiesList.map((c) => (
+                <option key={c._id} value={c._id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="table-container">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Reference Number</th>
+                <th>Company</th>
+                <th>Assigned User</th>
+                <th>Created Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOfferLetters.length > 0 ? (
+                filteredOfferLetters.map((ol) => {
+                  const companyName = ol.companyId?.name || "Unknown Company";
+                  const companyOrigin = ol.companyId?.origin || "au";
+                  const userName = ol.userId?.username || "Unknown User";
+                  const userRole = ol.userId?.role || "user";
+
+                  return (
+                    <tr key={ol._id}>
+                      <td>
+                        <span className="ref-badge">
+                          <strong>{ol.refrenceNumber}</strong>
+                          <button
+                            type="button"
+                            className="copy-icon-btn"
+                            title="Copy Ref Number"
+                            onClick={() =>
+                              copyToClipboard(
+                                ol.refrenceNumber,
+                                "Reference Number"
+                              )
+                            }>
+                            📋
+                          </button>
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontWeight: "600" }}>{companyName}</span>
+                          {renderOriginBadge(companyOrigin)}
+                        </div>
+                      </td>
+                      <td>
+                        <div>
+                          <span style={{ fontWeight: "500" }}>{userName}</span>
+                          <span
+                            className={`status-badge role-badge-${userRole}`}
+                            style={{ marginLeft: "6px", fontSize: "0.75rem" }}>
+                            {userRole.toUpperCase()}
+                          </span>
+                        </div>
+                      </td>
+                      <td
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "var(--text-secondary)",
+                        }}>
+                        {ol.createdAt ? (
+                          new Date(ol.createdAt).toLocaleDateString()
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setEditingOfferLetter({ ...ol })}>
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() =>
+                              handleDeleteOfferLetter(ol._id, ol.refrenceNumber)
+                            }>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td
+                    colSpan="5"
+                    style={{
+                      textAlign: "center",
+                      padding: "24px",
+                      color: "var(--text-secondary)",
+                    }}>
+                    {offerLettersList.length === 0
+                      ? "No offer letters created yet. Use the form above to generate an offer letter."
+                      : "No offer letters match the search criteria."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Modals
+  const renderEditCompanyModal = () => {
+    if (!editingCompany) return null;
+    return (
+      <div
+        className="dashboard-modal-backdrop"
+        onClick={() => setEditingCompany(null)}>
+        <div className="dashboard-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="dashboard-modal-header">
+            <h3>Edit Company</h3>
+            <button
+              className="dashboard-modal-close"
+              onClick={() => setEditingCompany(null)}>
+              ✕
+            </button>
+          </div>
+          <form onSubmit={handleUpdateCompany}>
+            <div className="dashboard-modal-body">
+              <div className="form-group">
+                <label>Company Name *</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={editingCompany.name || ""}
+                  onChange={(e) =>
+                    setEditingCompany({ ...editingCompany, name: e.target.value })
+                  }
+                  required
+                />
+              </div>
+            </div>
+            <div className="dashboard-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setEditingCompany(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEditOfferLetterModal = () => {
+    if (!editingOfferLetter) return null;
+    const currentCompId =
+      editingOfferLetter.companyId?._id || editingOfferLetter.companyId || "";
+    const currentUserId =
+      editingOfferLetter.userId?._id || editingOfferLetter.userId || "";
+
+    return (
+      <div
+        className="dashboard-modal-backdrop"
+        onClick={() => setEditingOfferLetter(null)}>
+        <div className="dashboard-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="dashboard-modal-header">
+            <h3>Edit Offer Letter</h3>
+            <button
+              className="dashboard-modal-close"
+              onClick={() => setEditingOfferLetter(null)}>
+              ✕
+            </button>
+          </div>
+          <form onSubmit={handleUpdateOfferLetter}>
+            <div className="dashboard-modal-body">
+              <div className="form-group">
+                <label>Company *</label>
+                <select
+                  className="form-control"
+                  value={currentCompId}
+                  onChange={(e) =>
+                    setEditingOfferLetter({
+                      ...editingOfferLetter,
+                      companyId: e.target.value,
+                    })
+                  }
+                  required>
+                  <option value="">-- Select Company --</option>
+                  {companiesList.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name} ({c.origin.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Assigned User *</label>
+                <select
+                  className="form-control"
+                  value={currentUserId}
+                  onChange={(e) =>
+                    setEditingOfferLetter({
+                      ...editingOfferLetter,
+                      userId: e.target.value,
+                    })
+                  }
+                  required>
+                  <option value="">-- Select User --</option>
+                  {usersList.map((u) => (
+                    <option key={u._id} value={u._id}>
+                      {u.username} ({u.role || "user"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Reference Number *</label>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.refrenceNumber || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        refrenceNumber: e.target.value,
+                      })
+                    }
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ whiteSpace: "nowrap" }}
+                    onClick={() =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        refrenceNumber: `OL-AU-${generate8CharRef()}`,
+                      })
+                    }>
+                    🎲 Gen
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="dashboard-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setEditingOfferLetter(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   if (role !== "admin" && role !== "employe") {
     return (
       <div style={{ padding: "2rem" }}>
@@ -1234,6 +2012,20 @@ function Dashboard() {
             onClick={() => setActiveTab("accounts")}>
             <span>👥</span> Account Management
           </div>
+          {role === "admin" && (
+            <>
+              <div
+                className={`menu-item ${activeTab === "companies" ? "active" : ""}`}
+                onClick={() => setActiveTab("companies")}>
+                <span>🏢</span> Companies
+              </div>
+              <div
+                className={`menu-item ${activeTab === "offer-letters" ? "active" : ""}`}
+                onClick={() => setActiveTab("offer-letters")}>
+                <span>✉️</span> Offer Letters
+              </div>
+            </>
+          )}
         </div>
         <div className="sidebar-footer">
           <button className="logout-btn" onClick={handleLogout}>
@@ -1265,7 +2057,7 @@ function Dashboard() {
               </p>
             </div>
             {role === "admin" && (
-              <div style={{ display: "flex", gap: "15px" }}>
+              <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
                 <div
                   onClick={() => setActiveTab("visas")}
                   style={{
@@ -1353,6 +2145,64 @@ function Dashboard() {
                     {usersList.length}
                   </div>
                 </div>
+                <div
+                  onClick={() => setActiveTab("companies")}
+                  style={{
+                    cursor: "pointer",
+                    background: "white",
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+                    borderLeft: "4px solid #8b5cf6",
+                    minWidth: "110px",
+                  }}>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      textTransform: "uppercase",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}>
+                    Companies
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.4rem",
+                      fontWeight: 700,
+                      color: "#8b5cf6",
+                    }}>
+                    {companiesList.length}
+                  </div>
+                </div>
+                <div
+                  onClick={() => setActiveTab("offer-letters")}
+                  style={{
+                    cursor: "pointer",
+                    background: "white",
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+                    borderLeft: "4px solid #06b6d4",
+                    minWidth: "110px",
+                  }}>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      textTransform: "uppercase",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}>
+                    Offer Letters
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.4rem",
+                      fontWeight: 700,
+                      color: "#06b6d4",
+                    }}>
+                    {offerLettersList.length}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1362,6 +2212,8 @@ function Dashboard() {
           <>
             {renderVisasTable()}
             {renderPaymentsTable()}
+            {renderCompaniesTable()}
+            {renderOfferLettersTable()}
             {renderUsersTable()}
           </>
         )}
@@ -1871,7 +2723,245 @@ function Dashboard() {
             {renderPaymentsTable()}
           </>
         )}
+
+        {activeTab === "companies" && role === "admin" && (
+          <>
+            <div className="card">
+              <h2>Create New Company</h2>
+              <p
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: "0.85rem",
+                  marginTop: "-10px",
+                  marginBottom: "20px",
+                }}>
+                Add an employer or sponsor company registered in Australia, New Zealand, or Canada.
+              </p>
+              {companyAlert && (
+                <div
+                  className={`dashboard-alert dashboard-alert-${companyAlert.type}`}>
+                  <span>{companyAlert.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCompanyAlert(null)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                    }}>
+                    ✕
+                  </button>
+                </div>
+              )}
+              <form onSubmit={handleCreateCompany}>
+                <div className="form-row">
+                  <div className="form-group" style={{ flex: "1 1 100%" }}>
+                    <label style={{ fontWeight: "600" }}>Company Name *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={companyFormData.name}
+                      onChange={(e) =>
+                        setCompanyFormData({
+                          ...companyFormData,
+                          name: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Atlassian Australia Pty Ltd"
+                      required
+                    />
+                  </div>
+                </div>
+                <div
+                  style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={isCompanySubmitting}>
+                    {isCompanySubmitting ? "Creating..." : "🏢 Create Company"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setCompanyFormData({ name: "" });
+                      setCompanyAlert(null);
+                    }}>
+                    Reset Form
+                  </button>
+                </div>
+              </form>
+            </div>
+            {renderCompaniesTable()}
+          </>
+        )}
+
+        {activeTab === "offer-letters" && role === "admin" && (
+          <>
+            <div className="card">
+              <h2>Create Offer Letter</h2>
+              <p
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: "0.85rem",
+                  marginTop: "-10px",
+                  marginBottom: "20px",
+                }}>
+                Generate an official offer letter linking a registered company to an applicant user account.
+              </p>
+              {offerLetterAlert && (
+                <div
+                  className={`dashboard-alert dashboard-alert-${offerLetterAlert.type}`}>
+                  <span>{offerLetterAlert.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setOfferLetterAlert(null)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                    }}>
+                    ✕
+                  </button>
+                </div>
+              )}
+              <form onSubmit={handleCreateOfferLetter}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "8px",
+                      }}>
+                      <label style={{ fontWeight: "600", margin: 0 }}>
+                        Company *
+                      </label>
+                      {companiesList.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("companies")}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--primary-color)",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                            textDecoration: "underline",
+                            padding: 0,
+                          }}>
+                          + Add Company first
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      className="form-control"
+                      value={offerLetterFormData.companyId}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          companyId: e.target.value,
+                        })
+                      }
+                      required>
+                      <option value="">-- Select Company --</option>
+                      {companiesList.map((comp) => (
+                        <option key={comp._id} value={comp._id}>
+                          {comp.name} ({comp.origin.toUpperCase()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Applicant / User Account *
+                    </label>
+                    <select
+                      className="form-control"
+                      value={offerLetterFormData.userId}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          userId: e.target.value,
+                        })
+                      }
+                      required>
+                      <option value="">-- Select User Account --</option>
+                      {usersList.map((u) => (
+                        <option key={u._id} value={u._id}>
+                          {u.username} ({u.role || "user"}){" "}
+                          {u.origin ? `[${u.origin.toUpperCase()}]` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Reference Number *
+                    </label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={offerLetterFormData.refrenceNumber}
+                        onChange={(e) =>
+                          setOfferLetterFormData({
+                            ...offerLetterFormData,
+                            refrenceNumber: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. OL-AU-847291"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleGenerateOfferLetterRef}
+                        title="Auto-generate reference number"
+                        style={{ whiteSpace: "nowrap", padding: "8px 14px" }}>
+                        🎲 Gen Ref
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={isOfferLetterSubmitting}>
+                    {isOfferLetterSubmitting
+                      ? "Creating..."
+                      : "✉️ Create Offer Letter"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setOfferLetterFormData({
+                        companyId: "",
+                        userId: "",
+                        refrenceNumber: "",
+                      });
+                      setOfferLetterAlert(null);
+                    }}>
+                    Reset Form
+                  </button>
+                </div>
+              </form>
+            </div>
+            {renderOfferLettersTable()}
+          </>
+        )}
       </main>
+      {renderEditCompanyModal()}
+      {renderEditOfferLetterModal()}
     </div>
   );
 }

@@ -13,6 +13,8 @@ import ImmiAccountLogin from "./pages/ImmiAccountLogin";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import UserPortal from "./pages/UserPortal";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentCancel from "./pages/PaymentCancel";
 
 
 function App() {
@@ -21,7 +23,9 @@ function App() {
   const isImmiLogin = location.pathname.startsWith('/lusc/login');
   const isUserPortal = location.pathname.startsWith('/user-portal');
   const isDashboard = location.pathname.startsWith('/dashboard');
-  const isStandalone = isVevo || isImmiLogin || isUserPortal || isDashboard;
+  const isPaymentSuccess = location.pathname.startsWith('/payment/success');
+  const isPaymentCancel = location.pathname.startsWith('/payment/cancel');
+  const isStandalone = isVevo || isImmiLogin || isUserPortal || isDashboard || isPaymentSuccess || isPaymentCancel;
 
   return (
     <div className="app">
@@ -37,6 +41,10 @@ function App() {
           <Route path="/settling-in-australia" element={<SettlingInAustralia />} />
           <Route path="/evo/firstParty" element={<VevoFirstParty />} />
           <Route path="/lusc/login" element={<ImmiAccountLogin />} />
+          
+          {/* Payment Routes (Stripe Redirects) */}
+          <Route path="/payment/success" element={<PaymentSuccess />} />
+          <Route path="/payment/cancel" element={<PaymentCancel />} />
           
           {/* Protected Routes */}
           <Route 

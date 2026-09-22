@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./immiaccount.css";
-import logoHA from "../assets/images/logo-ha.png";
+import logoStacked from "../assets/images/logostacked.png";
+import { fetchStripeConfig, createCheckoutSession } from "../services/stripeService";
 
 function UserPortal({ initialSection }) {
   const navigate = useNavigate();
@@ -218,6 +219,128 @@ function UserPortal({ initialSection }) {
   const [paymentSortCol, setPaymentSortCol] = useState("date");
   const [paymentSortDir, setPaymentSortDir] = useState("desc");
 
+  // Manage Groups State
+  const [groups, setGroups] = useState(() => {
+    try {
+      const saved = localStorage.getItem("immi_groups");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [groupSortBy, setGroupSortBy] = useState("Expiry Date");
+  const [groupSortAsc, setGroupSortAsc] = useState(true);
+  const [showExpired, setShowExpired] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupType, setNewGroupType] = useState("Organisation");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [newGroupExpiry, setNewGroupExpiry] = useState("");
+
+  // Manage Account State - initialized dynamically from logged in user details
+  const initialUserDetails = useMemo(() => {
+    let uObj = {};
+    try {
+      uObj = JSON.parse(localStorage.getItem("user") || "{}");
+    } catch (e) {}
+
+    const storedUname = localStorage.getItem("username") || "";
+
+    // 1. Given names
+    const gn =
+      localStorage.getItem("givenNames") ||
+      uObj.givenNames ||
+      uObj.firstName ||
+      "";
+
+    // 2. Family name
+    let fn =
+      localStorage.getItem("familyName") ||
+      uObj.familyName ||
+      uObj.lastName ||
+      "";
+    if (!fn) {
+      if (storedUname && storedUname !== "User" && !storedUname.includes("@")) {
+        fn = storedUname.toUpperCase();
+      } else {
+        fn = "KUNAL";
+      }
+    }
+
+    // 3. Email
+    let em =
+      localStorage.getItem("userEmail") ||
+      localStorage.getItem("email") ||
+      uObj.email ||
+      "";
+    if (!em) {
+      if (storedUname && storedUname.includes("@")) {
+        em = storedUname;
+      } else {
+        em = "kunalkhichy123@gmail.com";
+      }
+    }
+
+    return { givenNames: gn, familyName: fn, email: em };
+  }, []);
+
+  const [manageAccountTab, setManageAccountTab] = useState("Summary");
+  const [userGivenNames, setUserGivenNames] = useState(() => initialUserDetails.givenNames);
+  const [userFamilyName, setUserFamilyName] = useState(() => initialUserDetails.familyName);
+  const [userEmail, setUserEmail] = useState(() => initialUserDetails.email);
+  const [userAlertsPref, setUserAlertsPref] = useState(true);
+  const [editGivenNames, setEditGivenNames] = useState(() => initialUserDetails.givenNames);
+  const [editFamilyName, setEditFamilyName] = useState(() => initialUserDetails.familyName);
+  const [editEmail, setEditEmail] = useState(() => initialUserDetails.email);
+  const [editConfirmEmail, setEditConfirmEmail] = useState(() => initialUserDetails.email);
+  const [currentPasswordVal, setCurrentPasswordVal] = useState("");
+  const [newPasswordVal, setNewPasswordVal] = useState("");
+  const [confirmPasswordVal, setConfirmPasswordVal] = useState("");
+  const [mfaOption, setMfaOption] = useState("app");
+  const [secretQ1, setSecretQ1] = useState("What was your first pet's name?");
+  const [secretA1, setSecretA1] = useState("");
+  const [secretQ2, setSecretQ2] = useState("What is your favorite book?");
+  const [secretA2, setSecretA2] = useState("");
+  const [requestServiceType, setRequestServiceType] = useState("Organisation access");
+  const [accountMessage, setAccountMessage] = useState("");
+
+  const handleCreateGroup = (e) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+    const newGroup = {
+      id: "GRP-" + Date.now().toString().slice(-6),
+      name: newGroupName.trim(),
+      type: newGroupType,
+      description: newGroupDescription.trim(),
+      createdDate: new Date().toLocaleDateString("en-AU", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+      expiryDate: newGroupExpiry || "Never",
+      status: "Active",
+    };
+    const updated = [newGroup, ...groups];
+    setGroups(updated);
+    try {
+      localStorage.setItem("immi_groups", JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+    setShowCreateGroupModal(false);
+    setNewGroupName("");
+    setNewGroupDescription("");
+  };
+
+  const handleRefreshGroups = () => {
+    try {
+      const saved = localStorage.getItem("immi_groups");
+      setGroups(saved ? JSON.parse(saved) : []);
+    } catch {
+      setGroups([]);
+    }
+  };
+
   // Payment Modals
   const [showPayInvoiceModal, setShowPayInvoiceModal] = useState(false);
   const [showPrePayModal, setShowPrePayModal] = useState(false);
@@ -283,10 +406,20 @@ function UserPortal({ initialSection }) {
     status: "Pending",
   });
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [isStripeLoading, setIsStripeLoading] = useState(false);
+  const [stripeConfig, setStripeConfig] = useState({ publishableKey: "", isConfigured: false });
   const [paymentCompletedReceipt, setPaymentCompletedReceipt] = useState(null);
   const [calcNote, setCalcNote] = useState("");
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("card");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("stripe");
+
+  useEffect(() => {
+    fetchStripeConfig().then((cfg) => {
+      if (cfg && cfg.isConfigured) {
+        setStripeConfig(cfg);
+      }
+    });
+  }, []);
   const [cardDetails, setCardDetails] = useState({
     cardNumber: "",
     expiryMonth: "08",
@@ -394,6 +527,29 @@ function UserPortal({ initialSection }) {
     }
     return combined;
   }, [visas, importedVisas]);
+
+  // Sync manage-account details with primary visa application if not manually overridden
+  useEffect(() => {
+    if (allVisas && allVisas.length > 0) {
+      const primaryVisa = allVisas[0];
+      if (!localStorage.getItem("givenNames") && primaryVisa.givenNames) {
+        setUserGivenNames(primaryVisa.givenNames);
+        setEditGivenNames(primaryVisa.givenNames);
+      }
+      if (!localStorage.getItem("familyName") && primaryVisa.familyName) {
+        setUserFamilyName(primaryVisa.familyName.toUpperCase());
+        setEditFamilyName(primaryVisa.familyName.toUpperCase());
+      }
+      if (!localStorage.getItem("userEmail")) {
+        const vEmail = primaryVisa.email || primaryVisa.applicantEmail || primaryVisa.contactEmail;
+        if (vEmail) {
+          setUserEmail(vEmail);
+          setEditEmail(vEmail);
+          setEditConfirmEmail(vEmail);
+        }
+      }
+    }
+  }, [allVisas]);
 
   // Filter and Sort Visas
   const filteredVisas = useMemo(() => {
@@ -1029,123 +1185,73 @@ function UserPortal({ initialSection }) {
     }
   };
 
-  const handleSubmitPrePayment = () => {
-    if (selectedPaymentMethod === "card") {
-      if (!cardDetails.cardNumber.trim()) {
-        alert("Please enter a valid debit/credit card number.");
-        return;
-      }
-      if (!cardDetails.nameOnCard.trim()) {
-        alert("Please enter the name on your card.");
-        return;
-      }
-      if (!cardDetails.csc.trim()) {
-        alert("Please enter the Card Security Code (CSC).");
-        return;
-      }
+  const handleInitiateStripeCheckout = async (targetPayment) => {
+    if (!token) {
+      alert("Your session has expired. Please log in again to proceed with payment.");
+      navigate("/lusc/login");
+      return;
     }
 
-    setIsPaymentProcessing(true);
-    setTimeout(async () => {
-      setIsPaymentProcessing(false);
-      let targetId = makePaymentData.paymentId;
-      if (!targetId && makePaymentData.paymentRef) {
-        const found = payments.find(
-          (p) =>
-            p.ref === makePaymentData.paymentRef ||
-            p.referenceNumber === makePaymentData.paymentRef,
-        );
-        if (found) targetId = found.id || found._id;
+    try {
+      setIsStripeLoading(true);
+
+      const pObj = targetPayment || makePaymentData || {};
+      const targetId = pObj.paymentId || pObj._id || pObj.id || null;
+
+      // Determine amount
+      let amt = parseFloat(pObj.amount || pObj.backendAmount || 0);
+      if (!amt || isNaN(amt) || amt <= 0) {
+        amt = parseFloat(calculateFeeForSubclass(pObj.visaSubclass || pObj.subclass || "600 Visitor"));
       }
 
-      const now = new Date();
-      const formattedDateOnly = now.toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-      const formattedNow =
-        formattedDateOnly +
-        " " +
-        now.toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      const nowIso = now.toISOString();
+      // Determine customer email
+      let email = localStorage.getItem("userEmail") || localStorage.getItem("email");
+      if (!email) {
+        try {
+          const uObj = JSON.parse(localStorage.getItem("user") || "{}");
+          email = uObj.email;
+        } catch (e) {}
+      }
+      if (!email || !email.includes("@")) {
+        email = `${(storedUsername || "applicant").toLowerCase().replace(/[^a-z0-9]/g, "") || "applicant"}@immiaccount.homeaffairs.gov.au`;
+      }
+
+      // Determine linked visaId if targetId is not available
+      let vId = pObj.visaId || (allVisas.length > 0 ? allVisas[0]._id || allVisas[0].id : null);
+      if (vId && typeof vId === "object") {
+        vId = vId._id || vId.id;
+      }
+
+      const payload = {
+        amount: amt,
+        currency: "AUD",
+        origin: "au",
+        customerEmail: email,
+        comments: pObj.comments || pObj.internalRef || pObj.ref || `Visa Application Charge (${pObj.visaSubclass || "Visitor 600"})`,
+      };
 
       if (targetId) {
-        try {
-          const res = await fetch(`${API_URL}/api/payments/${targetId}?origin=au`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              status: "paid",
-              transactionDate: nowIso,
-            }),
-          });
-          if (!res.ok) {
-            console.error(
-              "Failed to update payment status on backend:",
-              res.status,
-              await res.text(),
-            );
-          }
-        } catch (err) {
-          console.error("Failed to update payment status on backend:", err);
-        }
+        payload.paymentId = targetId;
+      } else if (vId) {
+        payload.visaId = vId;
       }
 
-      // Update state and localStorage immediately
-      setPayments((prev) => {
-        const next = prev.map((p) => {
-          const isMatch =
-            (targetId && (p.id === targetId || p._id === targetId)) ||
-            (makePaymentData.paymentRef &&
-              (p.ref === makePaymentData.paymentRef ||
-                p.referenceNumber === makePaymentData.paymentRef));
-          if (isMatch) {
-            return {
-              ...p,
-              status: "Paid",
-              date: formattedDateOnly,
-              transactionDate: nowIso,
-              rawDate: nowIso,
-            };
-          }
-          return p;
-        });
-        try {
-          localStorage.setItem("au_payments", JSON.stringify(next));
-        } catch (e) {}
-        return next;
-      });
+      const sessionData = await createCheckoutSession(payload, token);
+      if (sessionData && sessionData.url) {
+        window.location.href = sessionData.url;
+      } else {
+        alert("Failed to initiate Stripe checkout: No redirect URL returned.");
+        setIsStripeLoading(false);
+      }
+    } catch (err) {
+      console.error("Stripe Checkout Error:", err);
+      alert(err.message || "An error occurred while connecting to Stripe Checkout.");
+      setIsStripeLoading(false);
+    }
+  };
 
-      setMakePaymentData((prev) => ({
-        ...prev,
-        status: "Paid",
-      }));
-
-      setPaymentCompletedReceipt({
-        receiptNumber:
-          "RC" + Math.floor(100000000 + Math.random() * 900000000),
-        voucherNumber:
-          "VCH-" + Math.floor(10000000 + Math.random() * 90000000),
-        ref: makePaymentData.paymentRef,
-        payerName: `${makePaymentData.givenNames} ${makePaymentData.familyName}`,
-        cardMask:
-          selectedPaymentMethod === "card" ?
-            `Card ending in ${cardDetails.cardNumber.slice(-4) || "8821"}`
-          : selectedPaymentMethod.toUpperCase(),
-        date: formattedNow,
-        amount: parseFloat(makePaymentData.amount || 145).toFixed(2),
-        subclass: makePaymentData.visaSubclass,
-        office: makePaymentData.processingOffice,
-        comments: makePaymentData.comments,
-      });
-    }, 1000);
+  const handleSubmitPrePayment = () => {
+    handleInitiateStripeCheckout(makePaymentData);
   };
 
   // Handle Pay Invoice Submit
@@ -1366,40 +1472,61 @@ function UserPortal({ initialSection }) {
 
   return (
     <div className="immi-application">
-      {/* 1. Australian Government Department of Home Affairs & ImmiAccount / Online Payments Header */}
-      <header className="immi-header">
-        <div className="immi-header-left">
-          <img
-            src={logoHA}
-            alt="Australian Government Department of Home Affairs"
-          />
-        </div>
-        <div className="immi-header-right">
-          <div className="immi-header-user-row">
-            <span className="immi-header-username">{headerDisplayName}</span>
+      {/* 1. Top Utility Header Bar (Dark Navy) */}
+      <div className="immi-header-top-bar">
+        <div className="immi-header-user-row">
+          <span className="immi-header-username">
+            {(userFamilyName || (storedUsername && storedUsername !== "User" ? storedUsername : "") || "KUNAL").toUpperCase()}
+          </span>
+          {activeSection === "manage-account" ? (
+            <button
+              type="button"
+              className="immi-header-link"
+              onClick={() => {
+                setActiveSection("applications");
+                navigate("/user-portal");
+              }}>
+              Return to Online Lodgement
+            </button>
+          ) : (
             <button
               type="button"
               className="immi-header-link"
               onClick={(e) => {
                 e.stopPropagation();
-                setShowAccountModal(true);
+                setActiveSection("manage-account");
               }}>
               Manage Account
             </button>
-            <button
-              type="button"
-              className="immi-header-link"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleLogout();
-              }}>
-              Logout
-            </button>
-          </div>
+          )}
+          <button
+            type="button"
+            className="immi-header-link"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleLogout();
+            }}>
+            Logout
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Main Branding Header Banner (Blue Gradient) */}
+      <header className="immi-header">
+        <div className="immi-header-left">
+          <img
+            src={logoStacked}
+            alt="Australian Government Department of Home Affairs"
+            className="immi-header-logo-stacked"
+          />
+        </div>
+        <div className="immi-header-right">
           <h1>
-            {activeSection === "manage-payments" ||
-            activeSection === "make-payment-section" ?
-              "Online payments"
+            {activeSection === "manage-account" ?
+              "Manage my ImmiAccount"
+            : activeSection === "manage-payments" ||
+              activeSection === "make-payment-section" ?
+              "Online Payments"
             : "ImmiAccount"}
           </h1>
         </div>
@@ -1408,126 +1535,874 @@ function UserPortal({ initialSection }) {
       {/* 2. Navigation Tabs Bar */}
       <nav className="immi-nav-bar">
         <div className="immi-nav-container">
-          <button
-            type="button"
-            className={`immi-nav-tab ${activeSection === "applications" ? "active" : ""}`}
-            onClick={() => {
-              setActiveSection("applications");
-              navigate("/user-portal");
-            }}>
-            My applications
-          </button>
+          {activeSection === "manage-account" ? (
+            <>
+              {[
+                "Summary",
+                "Account details",
+                "Email address",
+                "Password",
+                "Secret questions",
+                "Multi-factor authentication",
+                "Alert preferences",
+                "Request access",
+              ].map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`immi-nav-tab ${manageAccountTab === tab ? "active" : ""}`}
+                  onClick={() => setManageAccountTab(tab)}>
+                  {tab}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`immi-nav-tab ${activeSection === "applications" ? "active" : ""}`}
+                onClick={() => {
+                  setActiveSection("applications");
+                  navigate("/user-portal");
+                }}>
+                My applications
+              </button>
 
-          <div className="immi-nav-dropdown-wrapper">
-            <button
-              type="button"
-              className={`immi-nav-tab ${activeSection === "manage-payments" || activeSection === "make-payment-section" ? "active" : ""}`}
-              onClick={(e) => toggleDropdown("payments", e)}>
-              My payments <span className="caret">▾</span>
-            </button>
-            {openDropdown === "payments" && (
-              <div
-                className="immi-dropdown-menu"
-                onClick={(e) => e.stopPropagation()}>
+              <div className="immi-nav-dropdown-wrapper">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpenDropdown(null);
-                    setActiveSection("manage-payments");
-                    navigate("/user-portal");
-                  }}>
-                  Manage Payments
+                  className={`immi-nav-tab ${activeSection === "manage-payments" || activeSection === "make-payment-section" ? "active" : ""} ${openDropdown === "payments" ? "dropdown-open" : ""}`}
+                  onClick={(e) => toggleDropdown("payments", e)}>
+                  My payments <span className="caret">▾</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenDropdown(null);
-                    handleOpenMakePayment(payments[0] || {});
-                  }}>
-                  Make Payments
-                </button>
+                {openDropdown === "payments" && (
+                  <div
+                    className="immi-dropdown-menu"
+                    onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenDropdown(null);
+                        setActiveSection("manage-payments");
+                        navigate("/user-portal");
+                      }}>
+                      Manage Payments
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenDropdown(null);
+                        handleOpenMakePayment(payments[0] || {});
+                      }}>
+                      Make Payments
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <button
-            type="button"
-            className="immi-nav-tab"
-            onClick={() =>
-              alert(
-                "Manage groups: No agent or organisation groups assigned to this account.",
-              )
-            }>
-            Manage groups
-          </button>
+              <button
+                type="button"
+                className={`immi-nav-tab ${activeSection === "groups" ? "active" : ""}`}
+                onClick={() => {
+                  setActiveSection("groups");
+                  navigate("/user-portal");
+                }}>
+                Manage groups
+              </button>
 
-          <div className="immi-nav-dropdown-wrapper">
-            <button
-              type="button"
-              className="immi-nav-tab"
-              onClick={(e) => toggleDropdown("links", e)}>
-              Related links <span className="caret">▾</span>
-            </button>
-            {openDropdown === "links" && (
-              <div
-                className="immi-dropdown-menu"
-                onClick={(e) => e.stopPropagation()}>
-                <a
-                  href="https://immi.homeaffairs.gov.au"
-                  target="_blank"
-                  rel="noreferrer">
-                  Department of Home Affairs Home
-                </a>
-                <a href="/evo/firstParty">Check Visa Details (VEVO)</a>
-                <a href="/visas/already-have-a-visa/check-visa-details-and-conditions/overview">
-                  Visa Conditions Overview
-                </a>
-              </div>
-            )}
-          </div>
-
-          <div className="immi-nav-dropdown-wrapper">
-            <button
-              type="button"
-              className="immi-nav-tab"
-              onClick={(e) => toggleDropdown("help", e)}>
-              Help and support <span className="caret">▾</span>
-            </button>
-            {openDropdown === "help" && (
-              <div
-                className="immi-dropdown-menu"
-                onClick={(e) => e.stopPropagation()}>
+              <div className="immi-nav-dropdown-wrapper">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpenDropdown(null);
-                    setShowHelpModal(true);
-                  }}>
-                  ImmiAccount Help
+                  className={`immi-nav-tab ${openDropdown === "links" ? "dropdown-open" : ""}`}
+                  onClick={(e) => toggleDropdown("links", e)}>
+                  Related links <span className="caret">▾</span>
                 </button>
+                {openDropdown === "links" && (
+                  <div
+                    className="immi-dropdown-menu"
+                    onClick={(e) => e.stopPropagation()}>
+                    <a
+                      href="https://www.mara.gov.au"
+                      target="_blank"
+                      rel="noreferrer">
+                      MARA
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-finder"
+                      target="_blank"
+                      rel="noreferrer">
+                      Visa finder
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/fees-and-charges/visa-pricing-estimator"
+                      target="_blank"
+                      rel="noreferrer">
+                      Pricing estimator
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/fees-and-charges/current-visa-pricing"
+                      target="_blank"
+                      rel="noreferrer">
+                      Visa pricing table
+                    </a>
+                    <a href="/evo/firstParty">
+                      Visa entitlements (VEVO)
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/help-support/departmental-forms"
+                      target="_blank"
+                      rel="noreferrer">
+                      Forms
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/maritime-crew-988/status-enquiry"
+                      target="_blank"
+                      rel="noreferrer">
+                      Maritime Crew visa status enquiry
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/citizenship/test-and-interview/our-common-bond"
+                      target="_blank"
+                      rel="noreferrer">
+                      Prepare for the citizenship test
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <div className="immi-nav-dropdown-wrapper">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpenDropdown(null);
-                    alert(
-                      "Home Affairs Telephone Enquiry Line: 131 881 (within Australia)",
-                    );
-                  }}>
-                  Contact Us
+                  className={`immi-nav-tab ${openDropdown === "help" ? "dropdown-open" : ""}`}
+                  onClick={(e) => toggleDropdown("help", e)}>
+                  Help and support <span className="caret">▾</span>
                 </button>
+                {openDropdown === "help" && (
+                  <div
+                    className="immi-dropdown-menu"
+                    onClick={(e) => e.stopPropagation()}>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/settling-in-australia/help-with-english/learn-english/free-translating-service"
+                      target="_blank"
+                      rel="noreferrer">
+                      Translation services
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/help-support/departmental-forms/online-forms/complaints-compliments-and-feedback"
+                      target="_blank"
+                      rel="noreferrer">
+                      Client feedback
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/help-support/contact-us"
+                      target="_blank"
+                      rel="noreferrer">
+                      Contact us
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/help-support/applying-online-or-on-paper/online"
+                      target="_blank"
+                      rel="noreferrer">
+                      ImmiAccount support
+                    </a>
+                    <a
+                      href="https://immi.homeaffairs.gov.au/about-us/our-commitments/client-service-charter"
+                      target="_blank"
+                      rel="noreferrer">
+                      Client service charter
+                    </a>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </nav>
 
       {/* 3. Main Dashboard Body */}
       <main className="immi-dashboard-wrapper">
-        {activeSection === "make-payment-section" ?
-          <div className="immi-make-payment-wrapper">
-            {/* Dark navy subheader bar with "Make Payments" */}
-            <div className="immi-make-payment-banner">Make Payments</div>
+        {activeSection === "manage-account" ? (
+          <div className="immi-dashboard-card immi-manage-account-card">
+            <div className="immi-groups-banner">
+              <span className="immi-groups-banner-title">{manageAccountTab}</span>
+            </div>
+            <div className="immi-manage-account-body">
+              {accountMessage && (
+                <div
+                  style={{
+                    backgroundColor: "#e8f5e9",
+                    color: "#2e7d32",
+                    border: "1px solid #c8e6c9",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    marginBottom: "16px",
+                  }}>
+                  ✓ {accountMessage}
+                </div>
+              )}
 
+              {manageAccountTab === "Summary" && (
+                <div>
+                  <h2 className="immi-account-section-heading">My services</h2>
+                  <p className="immi-account-service-intro">
+                    You have access to the following services and can request access to additional services from the{" "}
+                    <button
+                      type="button"
+                      className="immi-inline-link"
+                      onClick={() => setManageAccountTab("Request access")}>
+                      Request access tab
+                    </button>
+                    .
+                  </p>
+
+                  <ul className="immi-account-services-list">
+                    <li>
+                      <a
+                        href="#detention-visitor"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          alert("Detention Visitor Application service is active.");
+                        }}>
+                        Detention Visitor Application
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="#manage-payments"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveSection("manage-payments");
+                        }}>
+                        Manage Payments
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="#online-lodgement"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveSection("applications");
+                        }}>
+                        Online Lodgement (Apply for a visa or citizenship including sponsorship and nomination) - Individual
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://legend.homeaffairs.gov.au"
+                        target="_blank"
+                        rel="noreferrer">
+                        LEGENDcom
+                      </a>
+                    </li>
+                  </ul>
+
+                  <div className="immi-account-grid">
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Given names</span>
+                      <span className="immi-account-value">
+                        {userGivenNames ? `${userGivenNames} ` : ""}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => {
+                            setEditGivenNames(userGivenNames);
+                            setEditFamilyName(userFamilyName);
+                            setManageAccountTab("Account details");
+                          }}>
+                          (edit given name)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Family name</span>
+                      <span className="immi-account-value">
+                        {userFamilyName ? `${userFamilyName} ` : ""}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => {
+                            setEditGivenNames(userGivenNames);
+                            setEditFamilyName(userFamilyName);
+                            setManageAccountTab("Account details");
+                          }}>
+                          (edit family name)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Email address</span>
+                      <span className="immi-account-value">
+                        {userEmail ? `${userEmail} ` : ""}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => {
+                            setEditEmail(userEmail);
+                            setEditConfirmEmail(userEmail);
+                            setManageAccountTab("Email address");
+                          }}>
+                          (edit email address)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Username</span>
+                      <span className="immi-account-value">{userEmail || (storedUsername !== "User" ? storedUsername : "")}</span>
+                    </div>
+
+                    <div className="immi-account-row-divider" />
+
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Alerts</span>
+                      <span className="immi-account-value">
+                        {userAlertsPref ? "I will receive account alerts" : "Account alerts disabled"}{" "}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => setManageAccountTab("Alert preferences")}>
+                          (change my account alert preferences)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Password</span>
+                      <span className="immi-account-value">
+                        Password saved{" "}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => setManageAccountTab("Password")}>
+                          (change my password)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Account multi-factor authentication</span>
+                      <span className="immi-account-value">
+                        {mfaOption === "app" ? "App authentication enabled" : mfaOption === "email" ? "Email authentication enabled" : "SMS authentication enabled"}{" "}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => setManageAccountTab("Multi-factor authentication")}>
+                          (change method)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Secret questions</span>
+                      <span className="immi-account-value">
+                        Secret questions saved{" "}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => setManageAccountTab("Secret questions")}>
+                          (change my secret questions)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Terms and conditions</span>
+                      <span className="immi-account-value">
+                        <a
+                          href="https://immi.homeaffairs.gov.au/help-support/applying-online-or-on-paper/online/terms-and-conditions"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="immi-inline-link">
+                          View the ImmiAccount terms and conditions (opens in a new window)
+                        </a>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Delete account</span>
+                      <span className="immi-account-value">
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => {
+                            if (window.confirm("Are you sure you want to delete your ImmiAccount? This action cannot be undone.")) {
+                              alert("Account deletion request submitted.");
+                            }
+                          }}>
+                          Delete my ImmiAccount
+                        </button>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="immi-account-bottom-bar">
+                    <button
+                      type="button"
+                      className="immi-btn-classic"
+                      onClick={() => {
+                        setActiveSection("applications");
+                        navigate("/user-portal");
+                      }}>
+                      Return to Online Lodgement
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {manageAccountTab === "Account details" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Account details</h2>
+                  <p className="immi-account-service-intro">
+                    Update your name and personal details associated with your ImmiAccount.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setUserGivenNames(editGivenNames);
+                      setUserFamilyName(editFamilyName);
+                      try {
+                        localStorage.setItem("givenNames", editGivenNames);
+                        localStorage.setItem("familyName", editFamilyName);
+                      } catch (err) {
+                        console.error(err);
+                      }
+                      setAccountMessage("Account details updated successfully.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Given names
+                        </label>
+                        <input
+                          type="text"
+                          className="immi-input"
+                          value={editGivenNames}
+                          onChange={(e) => setEditGivenNames(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          placeholder="Given name(s)"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Family name *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          className="immi-input"
+                          value={editFamilyName}
+                          onChange={(e) => setEditFamilyName(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          placeholder="Family name"
+                        />
+                      </div>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Email address" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Email address</h2>
+                  <p className="immi-account-service-intro">
+                    Update your ImmiAccount login and notification email address.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (editEmail !== editConfirmEmail) {
+                        alert("Email addresses do not match.");
+                        return;
+                      }
+                      setUserEmail(editEmail);
+                      try {
+                        localStorage.setItem("userEmail", editEmail);
+                      } catch (err) {
+                        console.error(err);
+                      }
+                      setAccountMessage("Email address updated successfully.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                      <div>
+                        <span style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Current email address
+                        </span>
+                        <span style={{ fontSize: "12px", color: "#333" }}>{userEmail}</span>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          New email address *
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          className="immi-input"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Confirm new email address *
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          className="immi-input"
+                          value={editConfirmEmail}
+                          onChange={(e) => setEditConfirmEmail(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Password" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Password</h2>
+                  <p className="immi-account-service-intro">
+                    Change your ImmiAccount password. Passwords must be at least 14 characters long and include a mix of letters, numbers, and symbols.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (newPasswordVal !== confirmPasswordVal) {
+                        alert("New passwords do not match.");
+                        return;
+                      }
+                      setAccountMessage("Password changed successfully.");
+                      setNewPasswordVal("");
+                      setConfirmPasswordVal("");
+                      setCurrentPasswordVal("");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Current password *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="immi-input"
+                          value={currentPasswordVal}
+                          onChange={(e) => setCurrentPasswordVal(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          New password *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="immi-input"
+                          value={newPasswordVal}
+                          onChange={(e) => setNewPasswordVal(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Confirm new password *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="immi-input"
+                          value={confirmPasswordVal}
+                          onChange={(e) => setConfirmPasswordVal(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Secret questions" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Secret questions</h2>
+                  <p className="immi-account-service-intro">
+                    Secret questions help verify your identity if you forget your password or need to recover your account.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setAccountMessage("Secret questions updated successfully.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Question 1 *
+                        </label>
+                        <select
+                          className="immi-input"
+                          value={secretQ1}
+                          onChange={(e) => setSecretQ1(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
+                          <option value="What was your first pet's name?">What was your first pet's name?</option>
+                          <option value="What city was your mother born in?">What city was your mother born in?</option>
+                          <option value="What was the name of your first school?">What was the name of your first school?</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Answer 1 *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          className="immi-input"
+                          value={secretA1}
+                          onChange={(e) => setSecretA1(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Question 2 *
+                        </label>
+                        <select
+                          className="immi-input"
+                          value={secretQ2}
+                          onChange={(e) => setSecretQ2(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
+                          <option value="What is your favorite book?">What is your favorite book?</option>
+                          <option value="What was your dream job as a child?">What was your dream job as a child?</option>
+                          <option value="What was the model of your first car?">What was the model of your first car?</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Answer 2 *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          className="immi-input"
+                          value={secretA2}
+                          onChange={(e) => setSecretA2(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Multi-factor authentication" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Multi-factor authentication</h2>
+                  <p className="immi-account-service-intro">
+                    Manage how you authenticate when logging into your ImmiAccount.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setAccountMessage("Multi-factor authentication method saved.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "550px", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="mfaOption"
+                          value="app"
+                          checked={mfaOption === "app"}
+                          onChange={() => setMfaOption("app")}
+                        />
+                        <span><strong>App authentication (recommended)</strong> - Authenticator app generates a 6-digit code</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="mfaOption"
+                          value="email"
+                          checked={mfaOption === "email"}
+                          onChange={() => setMfaOption("email")}
+                        />
+                        <span><strong>Email one-time password</strong> - Verification code sent to {userEmail}</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="mfaOption"
+                          value="sms"
+                          checked={mfaOption === "sms"}
+                          onChange={() => setMfaOption("sms")}
+                        />
+                        <span><strong>SMS one-time password</strong> - Verification code sent to your registered mobile number</span>
+                      </label>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Alert preferences" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Alert preferences</h2>
+                  <p className="immi-account-service-intro">
+                    Configure how and when you receive alerts from your ImmiAccount.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setAccountMessage("Alert preferences saved.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "550px", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={userAlertsPref}
+                          onChange={(e) => setUserAlertsPref(e.target.checked)}
+                        />
+                        <span>I will receive account alerts</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          defaultChecked
+                        />
+                        <span>Receive notification when an application status changes</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          defaultChecked
+                        />
+                        <span>Receive notification when correspondence or messages are received</span>
+                      </label>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {manageAccountTab === "Request access" && (
+                <div>
+                  <h2 className="immi-account-section-heading">Request access</h2>
+                  <p className="immi-account-service-intro">
+                    Request access to additional services, organisation accounts, or agent representation.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setAccountMessage("Access request submitted successfully.");
+                      setManageAccountTab("Summary");
+                    }}>
+                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Service / Account Type *
+                        </label>
+                        <select
+                          className="immi-input"
+                          value={requestServiceType}
+                          onChange={(e) => setRequestServiceType(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
+                          <option value="Organisation access">Organisation access</option>
+                          <option value="Legal Practitioner / Migration Agent">Legal Practitioner / Migration Agent</option>
+                          <option value="Sponsor / Family access">Sponsor / Family access</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                          Organisation ID / MARN (if applicable)
+                        </label>
+                        <input
+                          type="text"
+                          className="immi-input"
+                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          placeholder="e.g. ORG-123456"
+                        />
+                      </div>
+                    </div>
+                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
+                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                        Submit Request
+                      </button>
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        onClick={() => setManageAccountTab("Summary")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : activeSection === "make-payment-section" ?
+          <div className="immi-make-payment-wrapper">
             <div className="immi-make-payment-card">
               {paymentCompletedReceipt ?
                 <div>
@@ -2069,7 +2944,7 @@ function UserPortal({ initialSection }) {
               }
             </div>
 
-            {/* 2. Payment Options Section Below (Matching Reference Screenshot) */}
+            {/* 2. Payment Options Section Below (Stripe Online Gateway) */}
             {!paymentCompletedReceipt && (
               <div className="immi-payment-options-card">
                 <div className="immi-options-title">Payment options</div>
@@ -2081,382 +2956,223 @@ function UserPortal({ initialSection }) {
 
                 <div className="immi-options-radios-row">
                   <span style={{ fontSize: "12px", color: "#222" }}>
-                    Select a payment option
+                    Select a payment option:
                   </span>
-                  <label className="immi-options-radio-label">
+                  <label className="immi-options-radio-label" style={{ cursor: "default" }}>
                     <input
                       type="radio"
                       name="paymentOption"
-                      value="card"
-                      checked={selectedPaymentMethod === "card"}
-                      onChange={() => setSelectedPaymentMethod("card")}
+                      value="stripe"
+                      checked={true}
+                      readOnly
                     />
-                    <span>Debit/credit card</span>
-                  </label>
-                  <label className="immi-options-radio-label">
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      value="paypal"
-                      checked={selectedPaymentMethod === "paypal"}
-                      onChange={() => setSelectedPaymentMethod("paypal")}
-                    />
-                    <span>PayPal</span>
-                  </label>
-                  <label className="immi-options-radio-label">
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      value="unionpay"
-                      checked={selectedPaymentMethod === "unionpay"}
-                      onChange={() => setSelectedPaymentMethod("unionpay")}
-                    />
-                    <span>UnionPay</span>
+                    <span style={{ fontWeight: "bold", color: "#004b87" }}>
+                      Credit / Debit Card &amp; Digital Wallets (Stripe)
+                    </span>
                   </label>
                 </div>
 
-                {selectedPaymentMethod === "card" ?
-                  <div>
-                    <div className="immi-options-subhead">
-                      Payment by debit/credit card
-                    </div>
+                <div>
+                  <div className="immi-options-subhead">
+                    Payment by debit/credit card, Apple Pay or Google Pay
+                  </div>
 
-                    {/* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */}
-                    <div className="immi-card-badges-row">
-                      {/* Visa */}
-                      <span className="immi-card-badge" title="Visa">
-                        <svg
-                          width="44"
-                          height="20"
-                          viewBox="0 0 100 32"
-                          fill="none">
-                          <rect
-                            width="100"
-                            height="32"
-                            rx="3"
-                            fill="#ffffff"
-                          />
-                          <path
-                            d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
-                            fill="#1A1F71"
-                          />
-                          <path
-                            d="M62.6 8.3C61.4 7.8 59.5 7.4 57.3 7.4C52.1 7.4 48.4 10.2 48.4 14.1C48.4 17 51 18.6 53 19.6C55 20.6 55.7 21.2 55.7 22.1C55.7 23.5 54 24.1 52.5 24.1C50.4 24.1 49.3 23.8 47.7 23.1L47 22.8L46.2 26.6C47.4 27.2 49.7 27.6 52 27.6C57.6 27.6 61.2 24.8 61.2 20.8C61.2 17.5 59.1 16 56.6 14.8C54.8 13.9 53.7 13.3 53.7 12.3C53.7 11.2 55.1 10.7 56.4 10.7C57.9 10.7 59.2 11 60.4 11.5L60.9 11.7L62.6 8.3Z"
-                            fill="#1A1F71"
-                          />
-                          <path
-                            d="M70.8 24H75.1L71.4 8H67.4C66.5 8 65.7 8.5 65.4 9.3L58.8 24H63.4L64.3 21.5H69.9L70.8 24ZM65.5 18.1C66.1 16.5 67.4 12.9 67.4 12.9C67.4 12.9 67.8 11.9 68 11.3L69.2 18.1H65.5Z"
-                            fill="#1A1F71"
-                          />
-                          <path
-                            d="M34.7 8H30.4C29.4 8 28.7 8.5 28.3 9.4L20.2 24H24.8L25.7 21.5H31.3L32.2 24H36.8L34.7 8ZM22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
-                            fill="#F7B600"
-                          />
-                          <path
-                            d="M22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
-                            fill="#1A1F71"
-                          />
-                        </svg>
-                      </span>
+                  {/* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */}
+                  <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
+                    {/* Visa */}
+                    <span className="immi-card-badge" title="Visa">
+                      <svg
+                        width="44"
+                        height="20"
+                        viewBox="0 0 100 32"
+                        fill="none">
+                        <rect
+                          width="100"
+                          height="32"
+                          rx="3"
+                          fill="#ffffff"
+                        />
+                        <path
+                          d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
+                          fill="#1A1F71"
+                        />
+                        <path
+                          d="M62.6 8.3C61.4 7.8 59.5 7.4 57.3 7.4C52.1 7.4 48.4 10.2 48.4 14.1C48.4 17 51 18.6 53 19.6C55 20.6 55.7 21.2 55.7 22.1C55.7 23.5 54 24.1 52.5 24.1C50.4 24.1 49.3 23.8 47.7 23.1L47 22.8L46.2 26.6C47.4 27.2 49.7 27.6 52 27.6C57.6 27.6 61.2 24.8 61.2 20.8C61.2 17.5 59.1 16 56.6 14.8C54.8 13.9 53.7 13.3 53.7 12.3C53.7 11.2 55.1 10.7 56.4 10.7C57.9 10.7 59.2 11 60.4 11.5L60.9 11.7L62.6 8.3Z"
+                          fill="#1A1F71"
+                        />
+                        <path
+                          d="M70.8 24H75.1L71.4 8H67.4C66.5 8 65.7 8.5 65.4 9.3L58.8 24H63.4L64.3 21.5H69.9L70.8 24ZM65.5 18.1C66.1 16.5 67.4 12.9 67.4 12.9C67.4 12.9 67.8 11.9 68 11.3L69.2 18.1H65.5Z"
+                          fill="#1A1F71"
+                        />
+                        <path
+                          d="M34.7 8H30.4C29.4 8 28.7 8.5 28.3 9.4L20.2 24H24.8L25.7 21.5H31.3L32.2 24H36.8L34.7 8ZM22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                          fill="#F7B600"
+                        />
+                        <path
+                          d="M22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                          fill="#1A1F71"
+                        />
+                      </svg>
+                    </span>
 
-                      {/* Mastercard */}
-                      <span className="immi-card-badge" title="Mastercard">
-                        <svg width="44" height="20" viewBox="0 0 70 40">
-                          <rect
-                            width="70"
-                            height="40"
-                            rx="3"
-                            fill="#0A0A0A"
-                          />
-                          <circle cx="27" cy="20" r="14" fill="#EB001B" />
-                          <circle
-                            cx="43"
-                            cy="20"
-                            r="14"
-                            fill="#F79E1B"
-                            fillOpacity="0.9"
-                          />
-                        </svg>
-                      </span>
+                    {/* Mastercard */}
+                    <span className="immi-card-badge" title="Mastercard">
+                      <svg width="44" height="20" viewBox="0 0 70 40">
+                        <rect
+                          width="70"
+                          height="40"
+                          rx="3"
+                          fill="#0A0A0A"
+                        />
+                        <circle cx="27" cy="20" r="14" fill="#EB001B" />
+                        <circle
+                          cx="43"
+                          cy="20"
+                          r="14"
+                          fill="#F79E1B"
+                          fillOpacity="0.9"
+                        />
+                      </svg>
+                    </span>
 
-                      {/* American Express */}
-                      <span className="immi-card-badge" title="American Express">
-                        <svg width="44" height="20" viewBox="0 0 60 40">
-                          <rect
-                            width="60"
-                            height="40"
-                            rx="3"
-                            fill="#0077A6"
-                          />
-                          <text
-                            x="30"
-                            y="24"
-                            fill="#ffffff"
-                            fontSize="9"
-                            fontWeight="bold"
-                            fontFamily="Arial, sans-serif"
-                            textAnchor="middle">
-                            AMEX
-                          </text>
-                        </svg>
-                      </span>
+                    {/* American Express */}
+                    <span className="immi-card-badge" title="American Express">
+                      <svg width="44" height="20" viewBox="0 0 60 40">
+                        <rect
+                          width="60"
+                          height="40"
+                          rx="3"
+                          fill="#0077A6"
+                        />
+                        <text
+                          x="30"
+                          y="24"
+                          fill="#ffffff"
+                          fontSize="9"
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif"
+                          textAnchor="middle">
+                          AMEX
+                        </text>
+                      </svg>
+                    </span>
 
-                      {/* Diners Club */}
-                      <span className="immi-card-badge" title="Diners Club">
-                        <svg width="44" height="20" viewBox="0 0 65 40">
-                          <rect
-                            width="65"
-                            height="40"
-                            rx="3"
-                            fill="#ffffff"
-                            stroke="#cbd5e1"
-                          />
-                          <circle cx="20" cy="20" r="11" fill="#004A97" />
-                          <path
-                            d="M20 12C24.4 12 28 15.6 28 20C28 24.4 24.4 28 20 28V12Z"
-                            fill="#ffffff"
-                          />
-                          <text
-                            x="35"
-                            y="23"
-                            fill="#004A97"
-                            fontSize="7.5"
-                            fontWeight="bold"
-                            fontFamily="Arial, sans-serif">
-                            Diners
-                          </text>
-                        </svg>
-                      </span>
+                    {/* Diners Club */}
+                    <span className="immi-card-badge" title="Diners Club">
+                      <svg width="44" height="20" viewBox="0 0 65 40">
+                        <rect
+                          width="65"
+                          height="40"
+                          rx="3"
+                          fill="#ffffff"
+                          stroke="#cbd5e1"
+                        />
+                        <circle cx="20" cy="20" r="11" fill="#004A97" />
+                        <path
+                          d="M20 12C24.4 12 28 15.6 28 20C28 24.4 24.4 28 20 28V12Z"
+                          fill="#ffffff"
+                        />
+                        <text
+                          x="35"
+                          y="23"
+                          fill="#004A97"
+                          fontSize="7.5"
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif">
+                          Diners
+                        </text>
+                      </svg>
+                    </span>
 
-                      {/* JCB */}
-                      <span className="immi-card-badge" title="JCB">
-                        <svg width="44" height="20" viewBox="0 0 60 40">
-                          <rect
-                            width="60"
-                            height="40"
-                            rx="3"
-                            fill="#ffffff"
-                            stroke="#cbd5e1"
-                          />
-                          <rect
-                            x="10"
-                            y="8"
-                            width="12"
-                            height="24"
-                            rx="2"
-                            fill="#003580"
-                          />
-                          <rect
-                            x="24"
-                            y="8"
-                            width="12"
-                            height="24"
-                            rx="2"
-                            fill="#D31145"
-                          />
-                          <rect
-                            x="38"
-                            y="8"
-                            width="12"
-                            height="24"
-                            rx="2"
-                            fill="#008037"
-                          />
-                          <text
-                            x="16"
-                            y="23"
-                            fill="#ffffff"
-                            fontSize="8"
-                            fontWeight="bold"
-                            textAnchor="middle">
-                            J
-                          </text>
-                          <text
-                            x="30"
-                            y="23"
-                            fill="#ffffff"
-                            fontSize="8"
-                            fontWeight="bold"
-                            textAnchor="middle">
-                            C
-                          </text>
-                          <text
-                            x="44"
-                            y="23"
-                            fill="#ffffff"
-                            fontSize="8"
-                            fontWeight="bold"
-                            textAnchor="middle">
-                            B
-                          </text>
-                        </svg>
-                      </span>
-                    </div>
+                    {/* JCB */}
+                    <span className="immi-card-badge" title="JCB">
+                      <svg width="44" height="20" viewBox="0 0 60 40">
+                        <rect
+                          width="60"
+                          height="40"
+                          rx="3"
+                          fill="#ffffff"
+                          stroke="#cbd5e1"
+                        />
+                        <rect
+                          x="10"
+                          y="8"
+                          width="12"
+                          height="24"
+                          rx="3"
+                          fill="#0079C1"
+                        />
+                        <rect
+                          x="24"
+                          y="8"
+                          width="12"
+                          height="24"
+                          rx="3"
+                          fill="#E60012"
+                        />
+                        <rect
+                          x="38"
+                          y="8"
+                          width="12"
+                          height="24"
+                          rx="3"
+                          fill="#00873C"
+                        />
+                        <text
+                          x="16"
+                          y="24"
+                          fill="#ffffff"
+                          fontSize="8"
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif"
+                          textAnchor="middle">
+                          J
+                        </text>
+                        <text
+                          x="30"
+                          y="24"
+                          fill="#ffffff"
+                          fontSize="8"
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif"
+                          textAnchor="middle">
+                          C
+                        </text>
+                        <text
+                          x="44"
+                          y="24"
+                          fill="#ffffff"
+                          fontSize="8"
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif"
+                          textAnchor="middle">
+                          B
+                        </text>
+                      </svg>
+                    </span>
+                  </div>
 
-                    <div
-                      style={{
-                        fontSize: "11.5px",
-                        color: "#333333",
-                        marginBottom: "12px",
-                      }}>
-                      Required field{" "}
-                      <span className="immi-prepay-req">*</span>
-                    </div>
+                  <div className="immi-prepay-notes" style={{ marginBottom: "12px" }}>
+                    <p>
+                      Payments are processed securely via the official <strong>Stripe Payment Gateway</strong>.
+                      Cardholder authentication (3D Secure) and digital wallet payments (Apple Pay / Google Pay) are supported.
+                    </p>
+                  </div>
 
-                    {/* Card input fields matching screenshot */}
+                  {/* Payment Details Table */}
+                  <div className="immi-card-table-wrap">
                     <table className="immi-prepay-table">
                       <tbody>
                         <tr>
-                          <td className="label-cell">
-                            Debit/credit card number{" "}
-                            <span className="immi-prepay-req">*</span>
-                          </td>
+                          <td className="label-cell" style={{ width: "240px" }}>Payment method</td>
                           <td className="value-cell">
-                            <input
-                              type="text"
-                              className="immi-prepay-input"
-                              placeholder="required"
-                              maxLength="19"
-                              style={{ width: "210px" }}
-                              value={cardDetails.cardNumber}
-                              onChange={(e) =>
-                                setCardDetails({
-                                  ...cardDetails,
-                                  cardNumber: e.target.value,
-                                })
-                              }
-                            />
+                            <span style={{ fontWeight: "600", color: "#004b87", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                              <span>💳 Stripe Hosted Checkout (Debit / Credit / Wallets)</span>
+                            </span>
                           </td>
                         </tr>
-
                         <tr>
-                          <td className="label-cell">
-                            Expiry date (MM/YY){" "}
-                            <span className="immi-prepay-req">*</span>
-                          </td>
-                          <td className="value-cell">
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                              }}>
-                              <select
-                                className="immi-prepay-select"
-                                style={{ width: "65px" }}
-                                value={cardDetails.expiryMonth}
-                                onChange={(e) =>
-                                  setCardDetails({
-                                    ...cardDetails,
-                                    expiryMonth: e.target.value,
-                                  })
-                                }>
-                                {Array.from({ length: 12 }, (_, i) => {
-                                  const val = String(i + 1).padStart(
-                                    2,
-                                    "0",
-                                  );
-                                  return (
-                                    <option key={val} value={val}>
-                                      {val}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                              <select
-                                className="immi-prepay-select"
-                                style={{ width: "65px" }}
-                                value={cardDetails.expiryYear}
-                                onChange={(e) =>
-                                  setCardDetails({
-                                    ...cardDetails,
-                                    expiryYear: e.target.value,
-                                  })
-                                }>
-                                {Array.from({ length: 12 }, (_, i) => {
-                                  const yr = String(25 + i);
-                                  return (
-                                    <option key={yr} value={yr}>
-                                      {yr}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td className="label-cell">
-                            Name on debit/credit card{" "}
-                            <span className="immi-prepay-req">*</span>
-                          </td>
-                          <td className="value-cell">
-                            <input
-                              type="text"
-                              className="immi-prepay-input"
-                              placeholder="required"
-                              style={{ width: "280px" }}
-                              value={cardDetails.nameOnCard}
-                              onChange={(e) =>
-                                setCardDetails({
-                                  ...cardDetails,
-                                  nameOnCard: e.target.value,
-                                })
-                              }
-                            />
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td className="label-cell">
-                            Card security code (CSC){" "}
-                            <span className="immi-prepay-req">*</span>
-                          </td>
-                          <td className="value-cell">
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "10px",
-                              }}>
-                              <input
-                                type="password"
-                                className="immi-prepay-input"
-                                placeholder="required"
-                                maxLength="4"
-                                style={{ width: "70px", minWidth: "70px" }}
-                                value={cardDetails.csc}
-                                onChange={(e) =>
-                                  setCardDetails({
-                                    ...cardDetails,
-                                    csc: e.target.value,
-                                  })
-                                }
-                              />
-                              <a
-                                href="#csc"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  alert(
-                                    "Card Security Code (CSC):\nFor Visa, MasterCard, JCB, and Diners Club, the CSC is the 3-digit number printed on the signature strip on the back of your card.\nFor American Express, it is the 4-digit code printed on the front above the account number.",
-                                  );
-                                }}
-                                style={{
-                                  color: "#004b87",
-                                  textDecoration: "underline",
-                                  fontSize: "11.5px",
-                                }}>
-                                What is a CSC?
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td className="label-cell">
-                            Credit card surcharge (AUD)
-                          </td>
+                          <td className="label-cell">Credit card surcharge (AUD)</td>
                           <td className="value-cell">
                             <div
                               style={{
@@ -2478,22 +3194,9 @@ function UserPortal({ initialSection }) {
                                 }}
                                 value="0.00"
                               />
-                              <a
-                                href="#surcharge"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  alert(
-                                    "Credit Card Surcharge:\nA surcharge is applied to payments made by credit card to reflect the costs of processing credit card transactions. Debit cards incur a $0.00 surcharge.",
-                                  );
-                                }}
-                                style={{
-                                  color: "#004b87",
-                                  textDecoration: "underline",
-                                  fontSize: "11.5px",
-                                  marginLeft: "6px",
-                                }}>
-                                What is the surcharge?
-                              </a>
+                              <span style={{ fontSize: "11px", color: "#666" }}>
+                                (No surcharge applied)
+                              </span>
                             </div>
                           </td>
                         </tr>
@@ -2516,18 +3219,21 @@ function UserPortal({ initialSection }) {
                                 alignItems: "center",
                                 gap: "6px",
                               }}>
-                              <span style={{ fontWeight: "bold" }}>$</span>
+                              <span style={{ fontWeight: "bold", fontSize: "14px", color: "#004b87" }}>$</span>
                               <span
                                 style={{
                                   fontWeight: "bold",
-                                  fontSize: "13px",
+                                  fontSize: "14px",
+                                  color: "#004b87",
                                 }}>
                                 {makePaymentData.isCalculated &&
                                 makePaymentData.amount ?
                                   parseFloat(
                                     makePaymentData.amount,
                                   ).toFixed(2)
-                                : "0.00"}
+                                : makePaymentData.backendAmount ?
+                                  parseFloat(makePaymentData.backendAmount).toFixed(2)
+                                : calculateFeeForSubclass(makePaymentData.visaSubclass)}
                               </span>
                             </div>
                           </td>
@@ -2535,35 +3241,32 @@ function UserPortal({ initialSection }) {
                       </tbody>
                     </table>
                   </div>
-                : <div
-                    style={{
-                      padding: "16px 0",
-                      fontSize: "12px",
-                      color: "#444",
-                    }}>
-                    <p>
-                      You will be securely redirected to{" "}
-                      <strong>
-                        {selectedPaymentMethod === "paypal" ?
-                          "PayPal"
-                        : "UnionPay"}
-                      </strong>{" "}
-                      to complete your payment of{" "}
-                      <strong>
-                        $
-                        {makePaymentData.isCalculated && makePaymentData.amount ?
-                          parseFloat(makePaymentData.amount).toFixed(2)
-                        : parseFloat(makePaymentData.backendAmount || 0).toFixed(2)
-                        }{" "}
-                        AUD
-                      </strong>
-                      .
-                    </p>
-                  </div>
-                }
 
-                {/* Bottom actions: Cancel on left, Submit on right */}
-                <div className="immi-options-actions">
+                  <div
+                    style={{
+                      margin: "16px 0 12px 0",
+                      padding: "12px 16px",
+                      backgroundColor: "#f4f6fb",
+                      border: "1px solid #c7d2fe",
+                      borderRadius: "4px",
+                      fontSize: "12px",
+                      color: "#1e1b4b",
+                      lineHeight: "1.5",
+                    }}>
+                    When you click <strong>Pay</strong>, you will be redirected to the secure payment gateway to enter your card details and complete payment. Once approved, your official Department of Home Affairs receipt will be generated automatically.
+                  </div>
+                </div>
+
+                {/* Bottom actions: Cancel on left, Pay on right */}
+                <div
+                  className="immi-options-actions"
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "10px",
+                  }}>
                   <button
                     type="button"
                     className="immi-btn-classic"
@@ -2578,9 +3281,9 @@ function UserPortal({ initialSection }) {
                     type="button"
                     className="immi-btn-classic"
                     style={{ fontWeight: "bold", minWidth: "75px" }}
-                    disabled={isPaymentProcessing}
-                    onClick={handleSubmitPrePayment}>
-                    {isPaymentProcessing ? "Processing..." : "Submit"}
+                    disabled={isStripeLoading}
+                    onClick={() => handleInitiateStripeCheckout(makePaymentData)}>
+                    {isStripeLoading ? "Processing..." : "Pay"}
                   </button>
                 </div>
               </div>
@@ -2588,11 +3291,6 @@ function UserPortal({ initialSection }) {
           </div>
         : activeSection === "manage-payments" ?
           <div className="immi-dashboard-card immi-payments-card">
-            {/* Subheader Banner */}
-            <div className="immi-summary-banner">
-              <span className="immi-summary-title">Manage Payments</span>
-            </div>
-
             <div className="immi-payments-content">
               {/* Top buttons row */}
               <div className="immi-gov-top-actions">
@@ -2971,45 +3669,194 @@ function UserPortal({ initialSection }) {
                   <button
                     type="button"
                     className={`immi-paginate-btn ${filteredPayments.length > 0 ? "active" : ""}`}
-                    disabled={filteredPayments.length === 0}>
-                    First
+                    disabled={filteredPayments.length === 0}
+                    title="First">
+                    «
                   </button>
                   <button
                     type="button"
                     className={`immi-paginate-btn ${filteredPayments.length > 0 ? "active" : ""}`}
-                    disabled={filteredPayments.length === 0}>
-                    Previous
+                    disabled={filteredPayments.length === 0}
+                    title="Previous">
+                    ‹
                   </button>
                   <button
                     type="button"
                     className={`immi-paginate-btn ${filteredPayments.length > 0 ? "active" : ""}`}
-                    disabled={filteredPayments.length === 0}>
-                    Next
+                    disabled={filteredPayments.length === 0}
+                    title="Next">
+                    ›
                   </button>
                   <button
                     type="button"
                     className={`immi-paginate-btn ${filteredPayments.length > 0 ? "active" : ""}`}
-                    disabled={filteredPayments.length === 0}>
-                    Last
+                    disabled={filteredPayments.length === 0}
+                    title="Last">
+                    »
                   </button>
                 </div>
               </div>
             </div>
           </div>
-        : <div className="immi-dashboard-card">
-            {/* Subheader Banner */}
-            <div className="immi-summary-banner">
-              <span className="immi-summary-title">
-                My applications summary
-              </span>
+        : activeSection === "groups" ?
+          <div className="immi-dashboard-card">
+            {/* Dark navy subheader bar with "Manage groups" */}
+            <div className="immi-groups-banner">
+              <span className="immi-groups-banner-title">Manage groups</span>
               <button
+                type="button"
                 className="immi-help-circle"
-                title="Click for help on My applications summary"
+                title="Click for help on Manage groups"
                 onClick={() => setShowHelpModal(true)}>
                 ?
               </button>
             </div>
 
+            <div className="immi-groups-body">
+              {/* Action Link: Create a new group */}
+              <div className="immi-groups-actions">
+                <button
+                  type="button"
+                  className="immi-group-action-link"
+                  onClick={() => setShowCreateGroupModal(true)}>
+                  <svg
+                    className="immi-group-action-icon"
+                    viewBox="0 0 24 24"
+                    fill="currentColor">
+                    <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+                  </svg>
+                  <span>Create a new group</span>
+                </button>
+              </div>
+
+              {/* Subheading: Group list */}
+              <h2 className="immi-groups-heading">Group list</h2>
+
+              {/* Toolbar */}
+              <div className="immi-groups-toolbar">
+                <div className="immi-groups-sort-group">
+                  <label htmlFor="group-sort-select" className="immi-groups-label">
+                    Sort by
+                  </label>
+                  <select
+                    id="group-sort-select"
+                    className="immi-groups-select"
+                    value={groupSortBy}
+                    onChange={(e) => setGroupSortBy(e.target.value)}>
+                    <option value="Expiry Date">Expiry Date</option>
+                    <option value="Group Name">Group Name</option>
+                    <option value="Date Created">Date Created</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="immi-groups-sort-direction-btn"
+                    title="Toggle sort direction"
+                    onClick={() => setGroupSortAsc(!groupSortAsc)}>
+                    ⇅
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className="immi-groups-refresh-link"
+                  onClick={handleRefreshGroups}>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    style={{ verticalAlign: "middle" }}>
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  <span>Refresh</span>
+                </button>
+
+                <label className="immi-groups-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={showExpired}
+                    onChange={(e) => setShowExpired(e.target.checked)}
+                    className="immi-groups-checkbox"
+                  />
+                  <span>Show expired</span>
+                </label>
+              </div>
+
+              {/* Empty state or Group table */}
+              {groups.filter((g) => showExpired || g.status !== "Expired").length === 0 ? (
+                <div className="immi-groups-empty-text">
+                  No results found
+                </div>
+              ) : (
+                <div className="immi-table-wrapper" style={{ marginTop: "10px" }}>
+                  <table className="immi-apps-table">
+                    <thead>
+                      <tr>
+                        <th>Group Name</th>
+                        <th>Type</th>
+                        <th>Date Created</th>
+                        <th>Expiry Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups
+                        .filter((g) => showExpired || g.status !== "Expired")
+                        .sort((a, b) => {
+                          let valA = a.name;
+                          let valB = b.name;
+                          if (groupSortBy === "Expiry Date") {
+                            valA = a.expiryDate;
+                            valB = b.expiryDate;
+                          } else if (groupSortBy === "Date Created") {
+                            valA = a.createdDate;
+                            valB = b.createdDate;
+                          }
+                          return groupSortAsc
+                            ? valA.localeCompare(valB)
+                            : valB.localeCompare(valA);
+                        })
+                        .map((grp) => (
+                          <tr key={grp.id}>
+                            <td><strong>{grp.name}</strong></td>
+                            <td>{grp.type}</td>
+                            <td>{grp.createdDate}</td>
+                            <td>{grp.expiryDate}</td>
+                            <td>
+                              <span className="immi-badge immi-badge-approved">
+                                {grp.status}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="immi-btn-details"
+                                onClick={() => {
+                                  const rem = groups.filter((g) => g.id !== grp.id);
+                                  setGroups(rem);
+                                  try {
+                                    localStorage.setItem("immi_groups", JSON.stringify(rem));
+                                  } catch (e) {
+                                    console.error(e);
+                                  }
+                                }}>
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        : <div className="immi-dashboard-card">
             {/* Action links */}
             <div className="immi-dashboard-actions">
               <button
@@ -3271,33 +4118,34 @@ function UserPortal({ initialSection }) {
           </div>
         }
 
-        {/* Footer */}
-        <footer
-          className={`immi-dashboard-footer ${activeSection === "manage-payments" || activeSection === "make-payment-section" ? "payments-footer" : ""}`}>
-          <ul className="immi-footer-links">
-            <li>
-              <a href="#accessibility" onClick={(e) => e.preventDefault()}>
-                Accessibility
-              </a>
-            </li>
-            <li>
-              <a href="#copyright" onClick={(e) => e.preventDefault()}>
-                Copyright &amp; Disclaimer
-              </a>
-            </li>
-            <li>
-              <a href="#security" onClick={(e) => e.preventDefault()}>
-                Online Security
-              </a>
-            </li>
-            <li>
-              <a href="#privacy" onClick={(e) => e.preventDefault()}>
-                Privacy
-              </a>
-            </li>
-          </ul>
-        </footer>
       </main>
+
+      {/* Full-width Government Footer */}
+      <footer className="immi-dashboard-footer">
+        <div className="immi-footer-inner">
+          <a href="#accessibility" onClick={(e) => e.preventDefault()}>
+            Accessibility
+          </a>
+          <span className="immi-footer-sep">|</span>
+          <a href="#copyright" onClick={(e) => e.preventDefault()}>
+            Copyright &amp; Disclaimer
+          </a>
+          <span className="immi-footer-sep">|</span>
+          <a href="#security" onClick={(e) => e.preventDefault()}>
+            Online Security
+          </a>
+          <span className="immi-footer-sep">|</span>
+          <a href="#privacy" onClick={(e) => e.preventDefault()}>
+            Privacy
+          </a>
+          {activeSection === "manage-account" && userEmail && (
+            <>
+              <span className="immi-footer-sep">|</span>
+              <span>{userEmail}</span>
+            </>
+          )}
+        </div>
+      </footer>
 
       {/* =========================================================================
           MODALS
@@ -3416,7 +4264,19 @@ function UserPortal({ initialSection }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="immi-doc-download-btn">
-                            View / Download PDF
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{ verticalAlign: "middle" }}>
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                              <polyline points="7 10 12 15 17 10"></polyline>
+                              <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>View / Download PDF</span>
                           </a>
                         : <span style={{ color: "#888", fontSize: "11px" }}>
                             Processed
@@ -3703,6 +4563,16 @@ function UserPortal({ initialSection }) {
               </table>
             </div>
             <div className="immi-modal-footer">
+              <button
+                type="button"
+                className="immi-btn-cancel"
+                style={{ backgroundColor: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5", marginRight: "auto" }}
+                onClick={() => {
+                  setShowAccountModal(false);
+                  handleLogout();
+                }}>
+                Logout
+              </button>
               <button
                 className="immi-btn-cancel"
                 onClick={() => setShowAccountModal(false)}>
@@ -4454,6 +5324,95 @@ function UserPortal({ initialSection }) {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create New Group Modal */}
+      {showCreateGroupModal && (
+        <div
+          className="immi-modal-backdrop"
+          onClick={() => setShowCreateGroupModal(false)}>
+          <div
+            className="immi-modal-content"
+            style={{ maxWidth: "480px" }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="immi-modal-header">
+              <h3>Create a new group</h3>
+              <button
+                type="button"
+                className="immi-modal-close-btn"
+                onClick={() => setShowCreateGroupModal(false)}>
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleCreateGroup}>
+              <div className="immi-modal-body">
+                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                  <label
+                    className="immi-field-label"
+                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    Group Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="immi-input"
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="Enter group name"
+                  />
+                </div>
+                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                  <label
+                    className="immi-field-label"
+                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    Group Type
+                  </label>
+                  <select
+                    className="immi-input"
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    value={newGroupType}
+                    onChange={(e) => setNewGroupType(e.target.value)}>
+                    <option value="Organisation">Organisation</option>
+                    <option value="Legal Representative / Migration Agent">Legal Representative / Migration Agent</option>
+                    <option value="Family / Sponsor">Family / Sponsor</option>
+                  </select>
+                </div>
+                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                  <label
+                    className="immi-field-label"
+                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    Description
+                  </label>
+                  <textarea
+                    rows={3}
+                    className="immi-input"
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    value={newGroupDescription}
+                    onChange={(e) => setNewGroupDescription(e.target.value)}
+                    placeholder="Optional group description"
+                  />
+                </div>
+              </div>
+              <div
+                className="immi-modal-footer"
+                style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "12px 16px", background: "#f8f9fa", borderTop: "1px solid #e9ecef" }}>
+                <button
+                  type="button"
+                  className="immi-btn-sm"
+                  onClick={() => setShowCreateGroupModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="immi-btn-primary"
+                  style={{ backgroundColor: "#004b87", color: "#fff", border: "none", padding: "6px 14px", cursor: "pointer", fontWeight: "bold", borderRadius: "2px" }}>
+                  Save Group
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
