@@ -1,6 +1,64 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./dashboard.css";
+import {
+  generateOfferLetterBlob,
+  downloadOfferLetterPDF,
+} from "../components/OfferLetterPDF";
+import {
+  generateVisaGrantBlob,
+  generateVisaGrantBase64,
+  downloadVisaGrantPDF,
+} from "../components/VisaGrantPDF";
+
+const getFormattedTodayDate = () => {
+  const options = { day: "2-digit", month: "long", year: "numeric" };
+  return new Date().toLocaleDateString("en-GB", options);
+};
+
+const getFormattedExpiryDate = (months = 6) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  const options = { day: "2-digit", month: "long", year: "numeric" };
+  return d.toLocaleDateString("en-GB", options);
+};
+
+const generateNumericString = (length) => {
+  let res = "";
+  for (let i = 0; i < length; i++) {
+    res += Math.floor(Math.random() * 10).toString();
+  }
+  return res;
+};
+
+const generate8CharRef = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let result = "";
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
+const getInitialOfferLetterFormData = () => ({
+  companyId: "",
+  userId: "",
+  refrenceNumber: `OL-AU-${generate8CharRef()}`,
+  sponsorName: "",
+  sponsorAddress: "54B Tidal Road, Sydney NSW 2000, Australia",
+  clientId: generateNumericString(11),
+  sponsorshipApprovalId: generateNumericString(10),
+  fileNumber: `ABD2026/${generateNumericString(6)}`,
+  sponsorshipFeeReceiptNumber: generateNumericString(12),
+  dateOfApproval: getFormattedTodayDate(),
+  applicantName: "",
+  nationality: "Bangladeshi",
+  status: "Issued",
+  passportNumber: `A${generateNumericString(8)}`,
+  sponsorshipNumber: `W${generateNumericString(7)}`,
+  issueDate: getFormattedTodayDate(),
+  validTill: getFormattedExpiryDate(6),
+});
 
 const initialVisaData = {
   userId: "",
@@ -23,14 +81,32 @@ const initialVisaData = {
   nationality: "",
 };
 
-const generate8CharRef = () => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let result = "";
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
+const getInitialVisaFormData = () => ({ ...initialVisaData });
+
+const getInitialVisaGrantFormData = () => ({
+  id: `VG-${Date.now()}`,
+  refrenceNumber: `VG-AU-${generate8CharRef()}`,
+  applicantName: "PATEL Chintankumar Ranchhodbhai",
+  dateOfBirth: "25 September 1999",
+  passportNumber: `U${generateNumericString(7)}IND`,
+  passportCountry: "INDIA",
+
+  visaName: "Transit (subclass 771)",
+  applicationStatus: "Granted",
+  visaGrantNumber: `1139500${generateNumericString(6)}`,
+  applicationId: generateNumericString(9),
+  trn: `EGP${generate8CharRef().slice(0, 7)}`,
+
+  grantDate: getFormattedTodayDate(),
+  mustNotArriveAfter: getFormattedExpiryDate(12),
+  lengthOfStay: "3 day(s) from the date of each arrival",
+  travel: "Multiple entries",
+
+  conditions: "8101 - No work\n8201 - Maximum three months study",
+  whyKeepNotice:
+    "Airlines might ask for details in this notice so they can carry out checks to allow you to board the plane.",
+  createdAt: new Date().toISOString(),
+});
 
 const getInitialPaymentData = () => ({
   selectedVisaId: "",
@@ -81,6 +157,13 @@ function Dashboard() {
   const [currentDocBase64, setCurrentDocBase64] = useState("");
   const [currentDocFileName, setCurrentDocFileName] = useState("");
   const [documentKey, setDocumentKey] = useState(Date.now());
+  const [previewVisaData, setPreviewVisaData] = useState(null);
+  const [isVisaPreviewOpen, setIsVisaPreviewOpen] = useState(false);
+  const [visaPreviewPdfUrl, setVisaPreviewPdfUrl] = useState(null);
+  const [isVisaPreviewGenerating, setIsVisaPreviewGenerating] = useState(false);
+  const [downloadingVisaId, setDownloadingVisaId] = useState(null);
+  const [isVisaSubmitting, setIsVisaSubmitting] = useState(false);
+  const [visaAlert, setVisaAlert] = useState(null);
 
   const [usersList, setUsersList] = useState([]);
   const [visasList, setVisasList] = useState([]);
@@ -97,16 +180,61 @@ function Dashboard() {
 
   // Offer Letters state
   const [offerLettersList, setOfferLettersList] = useState([]);
-  const [offerLetterFormData, setOfferLetterFormData] = useState({
-    companyId: "",
-    userId: "",
-    refrenceNumber: "",
-  });
+  const [offerLetterFormData, setOfferLetterFormData] = useState(
+    getInitialOfferLetterFormData(),
+  );
   const [offerLetterSearch, setOfferLetterSearch] = useState("");
-  const [offerLetterCompanyFilter, setOfferLetterCompanyFilter] = useState("all");
+  const [offerLetterCompanyFilter, setOfferLetterCompanyFilter] =
+    useState("all");
   const [editingOfferLetter, setEditingOfferLetter] = useState(null);
   const [offerLetterAlert, setOfferLetterAlert] = useState(null);
   const [isOfferLetterSubmitting, setIsOfferLetterSubmitting] = useState(false);
+
+  // PDF Preview & Download state
+  const [previewOfferLetterData, setPreviewOfferLetterData] = useState(null);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+  const [isPreviewGenerating, setIsPreviewGenerating] = useState(false);
+  const [downloadingLetterId, setDownloadingLetterId] = useState(null);
+  // Dedicated Visa Grant Letter state
+  const [visaGrantFormData, setVisaGrantFormData] = useState(
+    getInitialVisaGrantFormData(),
+  );
+  const [savedVisaGrants, setSavedVisaGrants] = useState(() => {
+    try {
+      const saved = localStorage.getItem("au_saved_visa_grants");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to read saved visa grants:", e);
+    }
+    return [
+      {
+        id: "VG-SAMPLE-01",
+        refrenceNumber: "VG-AU-EGP6QH59",
+        applicantName: "PATEL Chintankumar Ranchhodbhai",
+        dateOfBirth: "25 September 1999",
+        passportNumber: "U4019655IND",
+        passportCountry: "INDIA",
+        visaName: "Transit (subclass 771)",
+        applicationStatus: "Granted",
+        visaGrantNumber: "1139500159106",
+        applicationId: "106951626",
+        trn: "EGP6QH59AO",
+        grantDate: "04 February 2025",
+        mustNotArriveAfter: "04 February 2026",
+        lengthOfStay: "3 day(s) from the date of each arrival",
+        travel: "Multiple entries",
+        conditions: "8101 - No work\n8201 - Maximum three months study",
+        whyKeepNotice:
+          "Airlines might ask for details in this notice so they can carry out checks to allow you to board the plane.",
+        savedAt: "Sample Template",
+      },
+    ];
+  });
+  const [visaGrantSearch, setVisaGrantSearch] = useState("");
+  const [visaGrantAlert, setVisaGrantAlert] = useState(null);
 
   const fetchVisas = async () => {
     try {
@@ -333,12 +461,146 @@ function Dashboard() {
     setUploadedDocs((prev) => prev.filter((_, idx) => idx !== index));
   };
 
+  const getVisaGrantMergedData = (v) => {
+    if (!v) return {};
+    return {
+      id: v.id || `VG-${Date.now()}`,
+      refrenceNumber: v.refrenceNumber || `VG-AU-${generate8CharRef()}`,
+      applicantName: v.applicantName || "PATEL Chintankumar Ranchhodbhai",
+      dateOfBirth: v.dateOfBirth || "25 September 1999",
+      passportNumber: v.passportNumber || "U4019655IND",
+      passportCountry: v.passportCountry || "INDIA",
+      visaName: v.visaName || "Transit (subclass 771)",
+      applicationStatus: v.applicationStatus || "Granted",
+      visaGrantNumber: v.visaGrantNumber || "1139500159106",
+      applicationId: v.applicationId || "106951626",
+      trn: v.trn || "EGP6QH59AO",
+      grantDate: v.grantDate || getFormattedTodayDate(),
+      mustNotArriveAfter: v.mustNotArriveAfter || getFormattedExpiryDate(12),
+      lengthOfStay: v.lengthOfStay || "3 day(s) from the date of each arrival",
+      travel: v.travel || "Multiple entries",
+      conditions: v.conditions || "8101 - No work\n8201 - Maximum three months study",
+      whyKeepNotice:
+        v.whyKeepNotice ||
+        "Airlines might ask for details in this notice so they can carry out checks to allow you to board the plane.",
+      createdAt: v.createdAt || new Date().toISOString(),
+    };
+  };
+
+  const handleVisaGrantChange = (e) => {
+    setVisaGrantFormData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleRegenerateVisaGrantVariables = () => {
+    setVisaGrantFormData((prev) => ({
+      ...prev,
+      visaGrantNumber: `1139500${generateNumericString(6)}`,
+      applicationId: generateNumericString(9),
+      trn: `EGP${generate8CharRef().slice(0, 7)}`,
+      passportNumber: `U${generateNumericString(7)}IND`,
+      refrenceNumber: `VG-AU-${generate8CharRef()}`,
+      grantDate: getFormattedTodayDate(),
+      mustNotArriveAfter: getFormattedExpiryDate(12),
+    }));
+  };
+
+  const handleOpenVisaGrantPreview = async (dataToPreview) => {
+    const merged = getVisaGrantMergedData(dataToPreview || visaGrantFormData);
+    setPreviewVisaData(merged);
+    setIsVisaPreviewOpen(true);
+    setIsVisaPreviewGenerating(true);
+    setVisaPreviewPdfUrl(null);
+    try {
+      const blob = await generateVisaGrantBlob(merged);
+      const url = URL.createObjectURL(blob);
+      setVisaPreviewPdfUrl(url);
+    } catch (err) {
+      console.error("Failed to generate Visa PDF preview:", err);
+      alert("Error generating Visa PDF preview");
+    } finally {
+      setIsVisaPreviewGenerating(false);
+    }
+  };
+
+  const handleCloseVisaGrantPreview = () => {
+    setIsVisaPreviewOpen(false);
+    if (visaPreviewPdfUrl) {
+      URL.revokeObjectURL(visaPreviewPdfUrl);
+      setVisaPreviewPdfUrl(null);
+    }
+    setPreviewVisaData(null);
+  };
+
+  const handleDownloadVisaGrantPDF = async (data, id) => {
+    const merged = getVisaGrantMergedData(data || visaGrantFormData);
+    setDownloadingVisaId(id || "form");
+    try {
+      await downloadVisaGrantPDF(
+        merged,
+        `Visa_Grant_${merged.visaGrantNumber || merged.trn || "AU"}.pdf`
+      );
+    } catch (err) {
+      console.error("Failed to download Visa PDF:", err);
+      alert("Failed to generate Visa PDF for download");
+    } finally {
+      setDownloadingVisaId(null);
+    }
+  };
+
+  const handleSaveVisaGrant = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const merged = getVisaGrantMergedData(visaGrantFormData);
+    const updated = [
+      {
+        ...merged,
+        id: merged.id || `VG-${Date.now()}`,
+        savedAt: new Date().toLocaleString(),
+      },
+      ...savedVisaGrants.filter((item) => item.id !== merged.id),
+    ];
+    setSavedVisaGrants(updated);
+    try {
+      localStorage.setItem("au_saved_visa_grants", JSON.stringify(updated));
+    } catch (err) {
+      console.error("Failed to save to localStorage:", err);
+    }
+    setVisaGrantAlert({
+      type: "success",
+      message: `Visa Grant Notice for "${merged.applicantName}" saved to records!`,
+    });
+  };
+
+  const handleDeleteSavedVisaGrant = (id) => {
+    if (!window.confirm("Remove this saved Visa Grant Notice?")) return;
+    const updated = savedVisaGrants.filter((item) => item.id !== id);
+    setSavedVisaGrants(updated);
+    try {
+      localStorage.setItem("au_saved_visa_grants", JSON.stringify(updated));
+    } catch (err) {
+      console.error("Failed to save to localStorage:", err);
+    }
+  };
+
+  const handleLoadSavedVisaGrant = (item) => {
+    setVisaGrantFormData(getVisaGrantMergedData(item));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setVisaGrantAlert({
+      type: "info",
+      message: `Loaded grant notice for ${item.applicantName} into editor.`,
+    });
+  };
+
   const handleVisaChange = (e) => {
     setVisaData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleCreateVisa = async (e) => {
     e.preventDefault();
+    setIsVisaSubmitting(true);
+    setVisaAlert(null);
     try {
       let finalDocs = [...uploadedDocs];
       const isAlreadyInList = uploadedDocs.some(
@@ -348,7 +610,11 @@ function Dashboard() {
       );
       if (currentDocBase64 && !isAlreadyInList) {
         if (!currentDocName.trim()) {
-          alert("Document name is required for all uploaded files");
+          setVisaAlert({
+            type: "danger",
+            message: "Document name is required for all uploaded files",
+          });
+          setIsVisaSubmitting(false);
           return;
         }
         finalDocs.push({
@@ -362,17 +628,21 @@ function Dashboard() {
       // Verify document name is present for all documents
       for (const doc of finalDocs) {
         if (!doc.documentName || !doc.documentName.trim()) {
-          alert("Document name is required for all uploaded files");
+          setVisaAlert({
+            type: "danger",
+            message: "Document name is required for all uploaded files",
+          });
+          setIsVisaSubmitting(false);
           return;
         }
       }
 
       // Format document array specifically as expected by createVisa in backend:
-      // each item has `document` (base64 data URI) and `documentName` (string)
       const docsArray = finalDocs.map((doc) => ({
         document: doc.document,
         documentName: doc.documentName.trim(),
-        name: doc.documentName.trim(),
+        name: doc.name ? doc.name.trim() : doc.documentName.trim(),
+        fileName: doc.fileName || "document.pdf",
       }));
 
       const payload = {
@@ -382,7 +652,7 @@ function Dashboard() {
       };
 
       if (!payload.userId) {
-        delete payload.userId; // Let it be null
+        delete payload.userId; // Let it be unassigned
       }
       delete payload.documentName;
 
@@ -396,7 +666,7 @@ function Dashboard() {
       });
       if (response.ok) {
         alert("Visa created successfully!");
-        setVisaData(initialVisaData);
+        setVisaData(getInitialVisaFormData());
         setUploadedDocs([]);
         setCurrentDocBase64("");
         setCurrentDocName("");
@@ -407,11 +677,18 @@ function Dashboard() {
         handleLogout();
       } else {
         const error = await response.json();
+        setVisaAlert({
+          type: "danger",
+          message: error.message || "Failed to create visa",
+        });
         alert(`Failed to create visa: ${error.message}`);
       }
     } catch (error) {
+      setVisaAlert({ type: "danger", message: "Error creating visa" });
       alert("Error creating visa");
       console.error(error);
+    } finally {
+      setIsVisaSubmitting(false);
     }
   };
 
@@ -628,8 +905,7 @@ function Dashboard() {
                   </td>
                   <td>
                     <button
-                      className="btn btn-danger"
-                      style={{ padding: "6px 12px", fontSize: "0.8rem" }}
+                      className="btn btn-danger btn-sm"
                       onClick={() => handleDeleteVisa(visa._id)}>
                       Delete
                     </button>
@@ -903,8 +1179,7 @@ function Dashboard() {
       ref: paymentData.referenceNumber.trim().toUpperCase(),
       transactionDate: rawDateVal,
       date: formattedDate,
-      issuingOffice:
-        paymentData.issuingOffice.trim() || "New Delhi",
+      issuingOffice: paymentData.issuingOffice.trim() || "New Delhi",
       office: paymentData.issuingOffice.trim() || "New Delhi",
       internalRef:
         paymentData.internalRef.trim() ||
@@ -1309,14 +1584,23 @@ function Dashboard() {
       });
       const data = await response.json();
       if (response.ok) {
-        setCompanyAlert({ type: "success", message: "Company created successfully!" });
+        setCompanyAlert({
+          type: "success",
+          message: "Company created successfully!",
+        });
         setCompanyFormData({ name: "" });
         fetchCompanies();
       } else {
-        setCompanyAlert({ type: "danger", message: data.message || "Failed to create company" });
+        setCompanyAlert({
+          type: "danger",
+          message: data.message || "Failed to create company",
+        });
       }
     } catch (error) {
-      setCompanyAlert({ type: "danger", message: "Network error creating company" });
+      setCompanyAlert({
+        type: "danger",
+        message: "Network error creating company",
+      });
     } finally {
       setIsCompanySubmitting(false);
     }
@@ -1329,16 +1613,19 @@ function Dashboard() {
       return;
     }
     try {
-      const response = await fetch(`${API_URL}/api/companies/${editingCompany._id}?origin=au`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        `${API_URL}/api/companies/${editingCompany._id}?origin=au`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: editingCompany.name.trim(),
+          }),
         },
-        body: JSON.stringify({
-          name: editingCompany.name.trim(),
-        }),
-      });
+      );
       const data = await response.json();
       if (response.ok) {
         alert("Company updated successfully!");
@@ -1353,7 +1640,12 @@ function Dashboard() {
   };
 
   const handleDeleteCompany = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete company "${name || id}"?`)) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to delete company "${name || id}"?`,
+      )
+    )
+      return;
     try {
       const response = await fetch(`${API_URL}/api/companies/${id}?origin=au`, {
         method: "DELETE",
@@ -1371,28 +1663,188 @@ function Dashboard() {
     }
   };
 
-  // Offer Letter handlers
-  const handleGenerateOfferLetterRef = () => {
-    const ref = `OL-AU-${generate8CharRef()}`;
-    setOfferLetterFormData((prev) => ({ ...prev, refrenceNumber: ref }));
+  // Offer Letter helpers & handlers
+  const getOfferLetterMergedData = (ol) => {
+    if (!ol) return {};
+    const details = ol.details || {};
+    return {
+      ...details,
+      companyId: ol.companyId,
+      userId: ol.userId,
+      refrenceNumber: ol.refrenceNumber || "",
+      sponsorName:
+        details.sponsorName ||
+        ol.companyId?.name ||
+        ol.sponsorName ||
+        "HD Contractor Limited",
+      sponsorAddress:
+        details.sponsorAddress ||
+        ol.sponsorAddress ||
+        "54B Tidal Road, Sydney NSW 2000, Australia",
+      clientId: details.clientId || ol.clientId || "15622175210",
+      sponsorshipApprovalId:
+        details.sponsorshipApprovalId ||
+        ol.sponsorshipApprovalId ||
+        "1740568430",
+      fileNumber: details.fileNumber || ol.fileNumber || "ABD2026/420367",
+      sponsorshipFeeReceiptNumber:
+        details.sponsorshipFeeReceiptNumber ||
+        ol.sponsorshipFeeReceiptNumber ||
+        "100001750031",
+      dateOfApproval:
+        details.dateOfApproval || ol.dateOfApproval || getFormattedTodayDate(),
+      applicantName:
+        details.applicantName ||
+        ol.userId?.username ||
+        ol.applicantName ||
+        "MD Shaminuzzaman",
+      nationality: details.nationality || ol.nationality || "Bangladeshi",
+      status: details.status || ol.status || "Issued",
+      passportNumber:
+        details.passportNumber || ol.passportNumber || "A09820252",
+      sponsorshipNumber:
+        details.sponsorshipNumber ||
+        ol.sponsorshipNumber ||
+        ol.refrenceNumber ||
+        "W8420862",
+      issueDate: details.issueDate || ol.issueDate || getFormattedTodayDate(),
+      validTill: details.validTill || ol.validTill || getFormattedExpiryDate(6),
+    };
+  };
+
+  const handleOpenOfferLetterPreview = async (letterData) => {
+    const merged = getOfferLetterMergedData(letterData);
+    setPreviewOfferLetterData(merged);
+    setIsPreviewGenerating(true);
+    try {
+      const blob = await generateOfferLetterBlob(merged);
+      const url = URL.createObjectURL(blob);
+      setPreviewPdfUrl(url);
+    } catch (err) {
+      console.error("Failed to generate PDF preview:", err);
+      alert("Could not generate PDF preview: " + (err.message || err));
+    } finally {
+      setIsPreviewGenerating(false);
+    }
+  };
+
+  const handleCloseOfferLetterPreview = () => {
+    if (previewPdfUrl) {
+      URL.revokeObjectURL(previewPdfUrl);
+    }
+    setPreviewPdfUrl(null);
+    setPreviewOfferLetterData(null);
+  };
+
+  const handleDownloadOfferLetter = async (letterData, olId = null) => {
+    if (olId) setDownloadingLetterId(olId);
+    const merged = getOfferLetterMergedData(letterData);
+    try {
+      await downloadOfferLetterPDF(
+        merged,
+        `Grant_Letter_${merged.sponsorshipNumber || merged.refrenceNumber || "AU"}.pdf`,
+      );
+    } catch (err) {
+      console.error("Failed to download PDF:", err);
+      alert("Could not download PDF: " + (err.message || err));
+    } finally {
+      if (olId) setDownloadingLetterId(null);
+    }
+  };
+
+  const handleRegenerateOfferLetterVariables = () => {
+    setOfferLetterFormData((prev) => ({
+      ...prev,
+      refrenceNumber: `OL-AU-${generate8CharRef()}`,
+      clientId: generateNumericString(11),
+      sponsorshipApprovalId: generateNumericString(10),
+      fileNumber: `ABD2026/${generateNumericString(6)}`,
+      sponsorshipFeeReceiptNumber: generateNumericString(12),
+      dateOfApproval: getFormattedTodayDate(),
+      passportNumber: `A${generateNumericString(8)}`,
+      sponsorshipNumber: `W${generateNumericString(7)}`,
+      issueDate: getFormattedTodayDate(),
+      validTill: getFormattedExpiryDate(6),
+    }));
+  };
+
+  const handleCompanySelectChange = (e) => {
+    const compId = e.target.value;
+    const selectedComp = companiesList.find((c) => c._id === compId);
+    setOfferLetterFormData((prev) => ({
+      ...prev,
+      companyId: compId,
+      sponsorName: selectedComp ? selectedComp.name : prev.sponsorName,
+    }));
+  };
+
+  const handleUserSelectChange = (e) => {
+    const uId = e.target.value;
+    const selectedUser = usersList.find((u) => u._id === uId);
+    setOfferLetterFormData((prev) => ({
+      ...prev,
+      userId: uId,
+      applicantName: selectedUser ? selectedUser.username : prev.applicantName,
+    }));
   };
 
   const handleCreateOfferLetter = async (e) => {
     e.preventDefault();
     if (!offerLetterFormData.companyId) {
-      setOfferLetterAlert({ type: "danger", message: "Please select a company." });
+      setOfferLetterAlert({
+        type: "danger",
+        message: "Please select a company.",
+      });
       return;
     }
     if (!offerLetterFormData.userId) {
-      setOfferLetterAlert({ type: "danger", message: "Please select a user account." });
+      setOfferLetterAlert({
+        type: "danger",
+        message: "Please select a user account.",
+      });
       return;
     }
     if (!offerLetterFormData.refrenceNumber.trim()) {
-      setOfferLetterAlert({ type: "danger", message: "Reference number is required." });
+      setOfferLetterAlert({
+        type: "danger",
+        message: "Reference number is required.",
+      });
       return;
     }
     setIsOfferLetterSubmitting(true);
     try {
+      const details = {
+        sponsorName:
+          offerLetterFormData.sponsorName ||
+          companiesList.find((c) => c._id === offerLetterFormData.companyId)
+            ?.name ||
+          "HD Contractor Limited",
+        sponsorAddress:
+          offerLetterFormData.sponsorAddress ||
+          "54B Tidal Road, Sydney NSW 2000, Australia",
+        clientId: offerLetterFormData.clientId || "15622175210",
+        sponsorshipApprovalId:
+          offerLetterFormData.sponsorshipApprovalId || "1740568430",
+        fileNumber: offerLetterFormData.fileNumber || "ABD2026/420367",
+        sponsorshipFeeReceiptNumber:
+          offerLetterFormData.sponsorshipFeeReceiptNumber || "100001750031",
+        dateOfApproval:
+          offerLetterFormData.dateOfApproval || getFormattedTodayDate(),
+        applicantName:
+          offerLetterFormData.applicantName ||
+          usersList.find((u) => u._id === offerLetterFormData.userId)
+            ?.username ||
+          "MD Shaminuzzaman",
+        nationality: offerLetterFormData.nationality || "Bangladeshi",
+        status: offerLetterFormData.status || "Issued",
+        passportNumber: offerLetterFormData.passportNumber || "A09820252",
+        sponsorshipNumber:
+          offerLetterFormData.sponsorshipNumber ||
+          offerLetterFormData.refrenceNumber.trim(),
+        issueDate: offerLetterFormData.issueDate || getFormattedTodayDate(),
+        validTill: offerLetterFormData.validTill || getFormattedExpiryDate(6),
+      };
+
       const response = await fetch(`${API_URL}/api/offer-letters?origin=au`, {
         method: "POST",
         headers: {
@@ -1403,25 +1855,55 @@ function Dashboard() {
           companyId: offerLetterFormData.companyId,
           userId: offerLetterFormData.userId,
           refrenceNumber: offerLetterFormData.refrenceNumber.trim(),
+          details,
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setOfferLetterAlert({ type: "success", message: "Offer letter created successfully!" });
-        setOfferLetterFormData({
-          companyId: "",
-          userId: "",
-          refrenceNumber: "",
+        setOfferLetterAlert({
+          type: "success",
+          message: "Offer letter created successfully!",
         });
+        setOfferLetterFormData(getInitialOfferLetterFormData());
         fetchOfferLetters();
       } else {
-        setOfferLetterAlert({ type: "danger", message: data.message || "Failed to create offer letter" });
+        setOfferLetterAlert({
+          type: "danger",
+          message: data.message || "Failed to create offer letter",
+        });
       }
     } catch (error) {
-      setOfferLetterAlert({ type: "danger", message: "Network error creating offer letter" });
+      setOfferLetterAlert({
+        type: "danger",
+        message: "Network error creating offer letter",
+      });
     } finally {
       setIsOfferLetterSubmitting(false);
     }
+  };
+
+  const handleStartEditOfferLetter = (ol) => {
+    const merged = getOfferLetterMergedData(ol);
+    setEditingOfferLetter({
+      _id: ol._id,
+      companyId: ol.companyId?._id || ol.companyId || "",
+      userId: ol.userId?._id || ol.userId || "",
+      refrenceNumber: ol.refrenceNumber || "",
+      sponsorName: merged.sponsorName,
+      sponsorAddress: merged.sponsorAddress,
+      clientId: merged.clientId,
+      sponsorshipApprovalId: merged.sponsorshipApprovalId,
+      fileNumber: merged.fileNumber,
+      sponsorshipFeeReceiptNumber: merged.sponsorshipFeeReceiptNumber,
+      dateOfApproval: merged.dateOfApproval,
+      applicantName: merged.applicantName,
+      nationality: merged.nationality,
+      status: merged.status,
+      passportNumber: merged.passportNumber,
+      sponsorshipNumber: merged.sponsorshipNumber,
+      issueDate: merged.issueDate,
+      validTill: merged.validTill,
+    });
   };
 
   const handleUpdateOfferLetter = async (e) => {
@@ -1430,21 +1912,46 @@ function Dashboard() {
       alert("Reference number is required.");
       return;
     }
-    const compId = editingOfferLetter.companyId?._id || editingOfferLetter.companyId;
+    const compId =
+      editingOfferLetter.companyId?._id || editingOfferLetter.companyId;
     const usrId = editingOfferLetter.userId?._id || editingOfferLetter.userId;
     try {
-      const response = await fetch(`${API_URL}/api/offer-letters/${editingOfferLetter._id}?origin=au`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const details = {
+        sponsorName: editingOfferLetter.sponsorName || "",
+        sponsorAddress: editingOfferLetter.sponsorAddress || "",
+        clientId: editingOfferLetter.clientId || "",
+        sponsorshipApprovalId: editingOfferLetter.sponsorshipApprovalId || "",
+        fileNumber: editingOfferLetter.fileNumber || "",
+        sponsorshipFeeReceiptNumber:
+          editingOfferLetter.sponsorshipFeeReceiptNumber || "",
+        dateOfApproval: editingOfferLetter.dateOfApproval || "",
+        applicantName: editingOfferLetter.applicantName || "",
+        nationality: editingOfferLetter.nationality || "",
+        status: editingOfferLetter.status || "Issued",
+        passportNumber: editingOfferLetter.passportNumber || "",
+        sponsorshipNumber:
+          editingOfferLetter.sponsorshipNumber ||
+          editingOfferLetter.refrenceNumber.trim(),
+        issueDate: editingOfferLetter.issueDate || "",
+        validTill: editingOfferLetter.validTill || "",
+      };
+
+      const response = await fetch(
+        `${API_URL}/api/offer-letters/${editingOfferLetter._id}?origin=au`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            companyId: compId,
+            userId: usrId,
+            refrenceNumber: editingOfferLetter.refrenceNumber.trim(),
+            details,
+          }),
         },
-        body: JSON.stringify({
-          companyId: compId,
-          userId: usrId,
-          refrenceNumber: editingOfferLetter.refrenceNumber.trim(),
-        }),
-      });
+      );
       const data = await response.json();
       if (response.ok) {
         alert("Offer letter updated successfully!");
@@ -1459,12 +1966,20 @@ function Dashboard() {
   };
 
   const handleDeleteOfferLetter = async (id, refNo) => {
-    if (!window.confirm(`Are you sure you want to delete offer letter "${refNo || id}"?`)) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to delete offer letter "${refNo || id}"?`,
+      )
+    )
+      return;
     try {
-      const response = await fetch(`${API_URL}/api/offer-letters/${id}?origin=au`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `${API_URL}/api/offer-letters/${id}?origin=au`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       const data = await response.json();
       if (response.ok) {
         alert("Offer letter deleted successfully!");
@@ -1509,7 +2024,8 @@ function Dashboard() {
                 color: "var(--text-secondary)",
                 marginTop: "4px",
               }}>
-              Origin: <strong>AU</strong> &nbsp;|&nbsp; Total: <strong>{companiesList.length}</strong>
+              Origin: <strong>AU</strong> &nbsp;|&nbsp; Total:{" "}
+              <strong>{companiesList.length}</strong>
             </div>
           </div>
           <div
@@ -1553,7 +2069,7 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {filteredCompanies.length > 0 ? (
+              {filteredCompanies.length > 0 ?
                 filteredCompanies.map((c) => (
                   <tr key={c._id}>
                     <td style={{ fontWeight: "600" }}>{c.name}</td>
@@ -1575,11 +2091,9 @@ function Dashboard() {
                         fontSize: "0.85rem",
                         color: "var(--text-secondary)",
                       }}>
-                      {c.createdAt ? (
+                      {c.createdAt ?
                         new Date(c.createdAt).toLocaleDateString()
-                      ) : (
-                        "-"
-                      )}
+                      : "-"}
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
@@ -1597,8 +2111,7 @@ function Dashboard() {
                     </td>
                   </tr>
                 ))
-              ) : (
-                <tr>
+              : <tr>
                   <td
                     colSpan="5"
                     style={{
@@ -1606,12 +2119,12 @@ function Dashboard() {
                       padding: "24px",
                       color: "var(--text-secondary)",
                     }}>
-                    {companiesList.length === 0
-                      ? "No companies registered yet. Use the form above to add a company."
-                      : "No companies match the search criteria."}
+                    {companiesList.length === 0 ?
+                      "No companies registered yet. Use the form above to add a company."
+                    : "No companies match the search criteria."}
                   </td>
                 </tr>
-              )}
+              }
             </tbody>
           </table>
         </div>
@@ -1624,9 +2137,9 @@ function Dashboard() {
     const filteredOfferLetters = offerLettersList.filter((ol) => {
       const olCompanyId = ol.companyId?._id || ol.companyId || "";
       const matchesCompany =
-        offerLetterCompanyFilter === "all"
-          ? true
-          : olCompanyId === offerLetterCompanyFilter;
+        offerLetterCompanyFilter === "all" ? true : (
+          olCompanyId === offerLetterCompanyFilter
+        );
 
       const q = offerLetterSearch.toLowerCase().trim();
       const refNo = (ol.refrenceNumber || "").toLowerCase();
@@ -1716,18 +2229,24 @@ function Dashboard() {
             <thead>
               <tr>
                 <th>Reference Number</th>
-                <th>Company</th>
-                <th>Assigned User</th>
+                <th>Sponsor / Company</th>
+                <th>Applicant</th>
+                <th>Passport / Status</th>
                 <th>Created Date</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredOfferLetters.length > 0 ? (
+              {filteredOfferLetters.length > 0 ?
                 filteredOfferLetters.map((ol) => {
-                  const companyName = ol.companyId?.name || "Unknown Company";
+                  const merged = getOfferLetterMergedData(ol);
+                  const companyName =
+                    merged.sponsorName ||
+                    ol.companyId?.name ||
+                    "Unknown Company";
                   const companyOrigin = ol.companyId?.origin || "au";
-                  const userName = ol.userId?.username || "Unknown User";
+                  const applicantName =
+                    merged.applicantName || ol.userId?.username || "Unknown";
                   const userRole = ol.userId?.role || "user";
 
                   return (
@@ -1742,7 +2261,7 @@ function Dashboard() {
                             onClick={() =>
                               copyToClipboard(
                                 ol.refrenceNumber,
-                                "Reference Number"
+                                "Reference Number",
                               )
                             }>
                             📋
@@ -1750,19 +2269,68 @@ function Dashboard() {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span style={{ fontWeight: "600" }}>{companyName}</span>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}>
+                          <span style={{ fontWeight: "600" }}>
+                            {companyName}
+                          </span>
                           {renderOriginBadge(companyOrigin)}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.78rem",
+                            color: "var(--text-secondary)",
+                          }}>
+                          Approval ID: {merged.sponsorshipApprovalId}
                         </div>
                       </td>
                       <td>
                         <div>
-                          <span style={{ fontWeight: "500" }}>{userName}</span>
+                          <span style={{ fontWeight: "600" }}>
+                            {applicantName}
+                          </span>
                           <span
                             className={`status-badge role-badge-${userRole}`}
                             style={{ marginLeft: "6px", fontSize: "0.75rem" }}>
-                            {userRole.toUpperCase()}
+                            {merged.nationality || userRole.toUpperCase()}
                           </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.78rem",
+                            color: "var(--text-secondary)",
+                          }}>
+                          User: {ol.userId?.username || "-"}
+                        </div>
+                      </td>
+                      <td>
+                        <div>
+                          <span
+                            style={{ fontWeight: "500", fontSize: "0.85rem" }}>
+                            {merged.passportNumber || "-"}
+                          </span>
+                          <span
+                            className="status-badge"
+                            style={{
+                              marginLeft: "6px",
+                              backgroundColor: "#e0f2fe",
+                              color: "#0369a1",
+                              fontSize: "0.72rem",
+                              fontWeight: "600",
+                            }}>
+                            {merged.status || "Issued"}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-secondary)",
+                          }}>
+                          Valid: {merged.validTill || "-"}
                         </div>
                       </td>
                       <td
@@ -1770,43 +2338,228 @@ function Dashboard() {
                           fontSize: "0.85rem",
                           color: "var(--text-secondary)",
                         }}>
-                        {ol.createdAt ? (
+                        {ol.createdAt ?
                           new Date(ol.createdAt).toLocaleDateString()
-                        ) : (
-                          "-"
-                        )}
+                        : "-"}
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: "6px" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "6px",
+                            flexWrap: "wrap",
+                          }}>
                           <button
+                            type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => setEditingOfferLetter({ ...ol })}>
-                            Edit
+                            title="Preview Offer Letter PDF"
+                            onClick={() => handleOpenOfferLetterPreview(ol)}>
+                            👁️ View
                           </button>
                           <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            title="Download PDF Document"
+                            disabled={downloadingLetterId === ol._id}
+                            onClick={() =>
+                              handleDownloadOfferLetter(ol, ol._id)
+                            }>
+                            {downloadingLetterId === ol._id ?
+                              "⏳..."
+                            : "📥 PDF"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            title="Edit all variables"
+                            onClick={() => handleStartEditOfferLetter(ol)}>
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
                             className="btn btn-danger btn-sm"
+                            title="Delete offer letter"
                             onClick={() =>
                               handleDeleteOfferLetter(ol._id, ol.refrenceNumber)
                             }>
-                            Delete
+                            🗑️
                           </button>
                         </div>
                       </td>
                     </tr>
                   );
                 })
-              ) : (
-                <tr>
+              : <tr>
                   <td
-                    colSpan="5"
+                    colSpan="6"
                     style={{
                       textAlign: "center",
                       padding: "24px",
                       color: "var(--text-secondary)",
                     }}>
-                    {offerLettersList.length === 0
-                      ? "No offer letters created yet. Use the form above to generate an offer letter."
-                      : "No offer letters match the search criteria."}
+                    {offerLettersList.length === 0 ?
+                      "No offer letters created yet. Use the form above to generate an offer letter."
+                    : "No offer letters match the search criteria."}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Saved Visa Grants Table
+  const renderSavedVisaGrantsTable = () => {
+    const q = visaGrantSearch.toLowerCase().trim();
+    const filtered = savedVisaGrants.filter((item) => {
+      if (!q) return true;
+      return (
+        (item.applicantName && item.applicantName.toLowerCase().includes(q)) ||
+        (item.visaGrantNumber && item.visaGrantNumber.toLowerCase().includes(q)) ||
+        (item.passportNumber && item.passportNumber.toLowerCase().includes(q)) ||
+        (item.trn && item.trn.toLowerCase().includes(q)) ||
+        (item.visaName && item.visaName.toLowerCase().includes(q)) ||
+        (item.refrenceNumber && item.refrenceNumber.toLowerCase().includes(q))
+      );
+    });
+
+    return (
+      <div className="card" style={{ marginTop: "24px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "16px",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}>
+          <div>
+            <h2 style={{ margin: 0, borderBottom: "none", paddingBottom: 0 }}>
+              Saved Visa Grant Letters ({filtered.length})
+            </h2>
+            <div
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-secondary)",
+                marginTop: "4px",
+              }}>
+              Standalone Australian Visa Grant Notice records saved in your admin portal.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search name, grant #, passport, TRN..."
+              value={visaGrantSearch}
+              onChange={(e) => setVisaGrantSearch(e.target.value)}
+              style={{ width: "260px", padding: "6px 12px", fontSize: "0.85rem" }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+              onClick={() => {
+                setVisaGrantFormData(getInitialVisaGrantFormData());
+                setVisaGrantAlert({
+                  type: "info",
+                  message: "Editor reset with fresh generated sample variables.",
+                });
+              }}>
+              ➕ New Grant Letter
+            </button>
+          </div>
+        </div>
+
+        <div className="table-container">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Applicant Name</th>
+                <th>Visa Subclass</th>
+                <th>Grant Number</th>
+                <th>Passport / Country</th>
+                <th>Grant Date</th>
+                <th>Must Not Arrive After</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? (
+                filtered.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <strong style={{ color: "var(--primary-color)" }}>
+                        {item.applicantName || "Unnamed"}
+                      </strong>
+                      {item.refrenceNumber && (
+                        <div style={{ fontSize: "0.75rem", color: "#888" }}>
+                          Ref: {item.refrenceNumber}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className="status-badge"
+                        style={{ backgroundColor: "#e0f2fe", color: "#0369a1" }}>
+                        {item.visaName || "Transit (subclass 771)"}
+                      </span>
+                    </td>
+                    <td>
+                      <code style={{ fontSize: "0.85rem" }}>
+                        {item.visaGrantNumber || "-"}
+                      </code>
+                    </td>
+                    <td>
+                      <div>{item.passportNumber || "-"}</div>
+                      <small style={{ color: "#777" }}>{item.passportCountry || ""}</small>
+                    </td>
+                    <td>{item.grantDate || "-"}</td>
+                    <td>{item.mustNotArriveAfter || "-"}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          title="Load into Editor"
+                          onClick={() => handleLoadSavedVisaGrant(item)}>
+                          ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          title="Preview PDF"
+                          onClick={() => handleOpenVisaGrantPreview(item)}>
+                          👁️ Preview
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          title="Download PDF Document"
+                          disabled={downloadingVisaId === item.id}
+                          onClick={() => handleDownloadVisaGrantPDF(item, item.id)}>
+                          {downloadingVisaId === item.id ? "⏳..." : "📥 PDF"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          title="Delete from Saved"
+                          onClick={() => handleDeleteSavedVisaGrant(item.id)}>
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan="7"
+                    style={{ textAlign: "center", padding: "24px", color: "var(--text-secondary)" }}>
+                    No visa grant records found matching your search.
                   </td>
                 </tr>
               )}
@@ -1842,7 +2595,10 @@ function Dashboard() {
                   className="form-control"
                   value={editingCompany.name || ""}
                   onChange={(e) =>
-                    setEditingCompany({ ...editingCompany, name: e.target.value })
+                    setEditingCompany({
+                      ...editingCompany,
+                      name: e.target.value,
+                    })
                   }
                   required
                 />
@@ -1876,9 +2632,16 @@ function Dashboard() {
       <div
         className="dashboard-modal-backdrop"
         onClick={() => setEditingOfferLetter(null)}>
-        <div className="dashboard-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="dashboard-modal dashboard-modal-wide"
+          onClick={(e) => e.stopPropagation()}>
           <div className="dashboard-modal-header">
-            <h3>Edit Offer Letter</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h3 style={{ margin: 0 }}>Edit Offer Letter & Variables</h3>
+              <span className="variable-badge">
+                {editingOfferLetter.refrenceNumber || "Editing"}
+              </span>
+            </div>
             <button
               className="dashboard-modal-close"
               onClick={() => setEditingOfferLetter(null)}>
@@ -1887,77 +2650,362 @@ function Dashboard() {
           </div>
           <form onSubmit={handleUpdateOfferLetter}>
             <div className="dashboard-modal-body">
-              <div className="form-group">
-                <label>Company *</label>
-                <select
-                  className="form-control"
-                  value={currentCompId}
-                  onChange={(e) =>
-                    setEditingOfferLetter({
-                      ...editingOfferLetter,
-                      companyId: e.target.value,
-                    })
-                  }
-                  required>
-                  <option value="">-- Select Company --</option>
-                  {companiesList.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name} ({c.origin.toUpperCase()})
-                    </option>
-                  ))}
-                </select>
+              {/* Account Linking */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "14px",
+                  marginBottom: "10px",
+                }}>
+                <div className="form-group">
+                  <label style={{ fontWeight: "600" }}>Company *</label>
+                  <select
+                    className="form-control"
+                    value={currentCompId}
+                    onChange={(e) => {
+                      const compId = e.target.value;
+                      const selectedComp = companiesList.find(
+                        (c) => c._id === compId,
+                      );
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        companyId: compId,
+                        sponsorName:
+                          selectedComp ?
+                            selectedComp.name
+                          : editingOfferLetter.sponsorName,
+                      });
+                    }}
+                    required>
+                    <option value="">-- Select Company --</option>
+                    {companiesList.map((c) => (
+                      <option key={c._id} value={c._id}>
+                        {c.name} ({c.origin.toUpperCase()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ fontWeight: "600" }}>Assigned User *</label>
+                  <select
+                    className="form-control"
+                    value={currentUserId}
+                    onChange={(e) => {
+                      const uId = e.target.value;
+                      const selectedUser = usersList.find((u) => u._id === uId);
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        userId: uId,
+                        applicantName:
+                          selectedUser ?
+                            selectedUser.username
+                          : editingOfferLetter.applicantName,
+                      });
+                    }}
+                    required>
+                    <option value="">-- Select User --</option>
+                    {usersList.map((u) => (
+                      <option key={u._id} value={u._id}>
+                        {u.username} ({u.role || "user"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ fontWeight: "600" }}>
+                    Reference Number *
+                  </label>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={editingOfferLetter.refrenceNumber || ""}
+                      onChange={(e) =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          refrenceNumber: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ whiteSpace: "nowrap" }}
+                      onClick={() =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          refrenceNumber: `OL-AU-${generate8CharRef()}`,
+                        })
+                      }>
+                      🎲 Gen
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Assigned User *</label>
-                <select
-                  className="form-control"
-                  value={currentUserId}
-                  onChange={(e) =>
-                    setEditingOfferLetter({
-                      ...editingOfferLetter,
-                      userId: e.target.value,
-                    })
-                  }
-                  required>
-                  <option value="">-- Select User --</option>
-                  {usersList.map((u) => (
-                    <option key={u._id} value={u._id}>
-                      {u.username} ({u.role || "user"})
-                    </option>
-                  ))}
-                </select>
+
+              {/* Section: Sponsor Quote Details */}
+              <div className="offer-letter-section-header">
+                <span>🏢 Sponsor & Official Quote Details (Page 1 Header)</span>
               </div>
-              <div className="form-group">
-                <label>Reference Number *</label>
-                <div style={{ display: "flex", gap: "10px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "14px",
+                }}>
+                <div className="form-group">
+                  <label>Name of Sponsor</label>
                   <input
                     type="text"
                     className="form-control"
-                    value={editingOfferLetter.refrenceNumber || ""}
+                    value={editingOfferLetter.sponsorName || ""}
                     onChange={(e) =>
                       setEditingOfferLetter({
                         ...editingOfferLetter,
-                        refrenceNumber: e.target.value,
+                        sponsorName: e.target.value,
                       })
                     }
-                    required
+                    placeholder="e.g. HD Contractor Limited"
                   />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ whiteSpace: "nowrap" }}
-                    onClick={() =>
+                </div>
+                <div className="form-group">
+                  <label>Sponsor Address</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.sponsorAddress || ""}
+                    onChange={(e) =>
                       setEditingOfferLetter({
                         ...editingOfferLetter,
-                        refrenceNumber: `OL-AU-${generate8CharRef()}`,
+                        sponsorAddress: e.target.value,
                       })
-                    }>
-                    🎲 Gen
-                  </button>
+                    }
+                    placeholder="e.g. 54B Tidal Road, Sydney NSW 2000, Australia"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Client ID</label>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={editingOfferLetter.clientId || ""}
+                      onChange={(e) =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          clientId: e.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          clientId: generateNumericString(11),
+                        })
+                      }>
+                      🎲
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Sponsorship Approval ID</label>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={editingOfferLetter.sponsorshipApprovalId || ""}
+                      onChange={(e) =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          sponsorshipApprovalId: e.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setEditingOfferLetter({
+                          ...editingOfferLetter,
+                          sponsorshipApprovalId: generateNumericString(10),
+                        })
+                      }>
+                      🎲
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>File Number</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.fileNumber || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        fileNumber: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Sponsorship Fee Receipt Number</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.sponsorshipFeeReceiptNumber || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        sponsorshipFeeReceiptNumber: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Date of Sponsorship Approval</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.dateOfApproval || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        dateOfApproval: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Section: Applicant & Status Details */}
+              <div className="offer-letter-section-header">
+                <span>
+                  👤 Applicant & Status Details (Page 1 & 2 Grant Info)
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "14px",
+                }}>
+                <div className="form-group">
+                  <label>Applicant Full Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.applicantName || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        applicantName: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Nationality</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.nationality || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        nationality: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Status</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.status || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        status: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Passport Number</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.passportNumber || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        passportNumber: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Sponsorship Number</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.sponsorshipNumber || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        sponsorshipNumber: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Issue Date</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.issueDate || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        issueDate: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Valid Till</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editingOfferLetter.validTill || ""}
+                    onChange={(e) =>
+                      setEditingOfferLetter({
+                        ...editingOfferLetter,
+                        validTill: e.target.value,
+                      })
+                    }
+                  />
                 </div>
               </div>
             </div>
             <div className="dashboard-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() =>
+                  handleOpenOfferLetterPreview(editingOfferLetter)
+                }>
+                👁️ Preview PDF
+              </button>
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -1969,6 +3017,176 @@ function Dashboard() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOfferLetterPreviewModal = () => {
+    if (!previewOfferLetterData && !previewPdfUrl && !isPreviewGenerating)
+      return null;
+
+    return (
+      <div
+        className="dashboard-modal-backdrop"
+        onClick={handleCloseOfferLetterPreview}>
+        <div
+          className="dashboard-modal dashboard-modal-pdf"
+          onClick={(e) => e.stopPropagation()}>
+          <div className="dashboard-modal-header">
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h3 style={{ margin: 0 }}>
+                📄 Australian Offer Letter PDF Preview
+              </h3>
+              <span className="variable-badge">
+                {previewOfferLetterData?.sponsorshipNumber ||
+                  previewOfferLetterData?.refrenceNumber ||
+                  "Grant Letter"}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {previewOfferLetterData && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() =>
+                    handleDownloadOfferLetter(previewOfferLetterData)
+                  }>
+                  📥 Download PDF
+                </button>
+              )}
+              <button
+                className="dashboard-modal-close"
+                onClick={handleCloseOfferLetterPreview}>
+                ✕
+              </button>
+            </div>
+          </div>
+          <div
+            className="dashboard-modal-body"
+            style={{ position: "relative", minHeight: "500px" }}>
+            {isPreviewGenerating ?
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
+                  minHeight: "500px",
+                  color: "#ffffff",
+                  gap: "14px",
+                }}>
+                <div style={{ fontSize: "2.4rem" }}>⏳</div>
+                <div style={{ fontSize: "1.05rem", fontWeight: "500" }}>
+                  Generating 2-page Offer Letter PDF with React-PDF...
+                </div>
+              </div>
+            : previewPdfUrl ?
+              <iframe
+                src={previewPdfUrl}
+                title="Offer Letter PDF Preview"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  minHeight: "500px",
+                  border: "none",
+                }}
+              />
+            : <div
+                style={{
+                  padding: "40px",
+                  textAlign: "center",
+                  color: "#cbd5e1",
+                }}>
+                No preview available.
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVisaPreviewModal = () => {
+    if (!isVisaPreviewOpen) return null;
+
+    return (
+      <div
+        className="dashboard-modal-backdrop"
+        onClick={handleCloseVisaGrantPreview}>
+        <div
+          className="dashboard-modal dashboard-modal-pdf"
+          onClick={(e) => e.stopPropagation()}>
+          <div className="dashboard-modal-header">
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h3 style={{ margin: 0 }}>
+                📄 Australian Visa Grant Notice PDF Preview
+              </h3>
+              <span className="variable-badge">
+                {previewVisaData?.visaGrantNumber ||
+                  previewVisaData?.trn ||
+                  "Grant Notice"}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {previewVisaData && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleDownloadVisaGrantPDF(previewVisaData)}>
+                  📥 Download PDF
+                </button>
+              )}
+              <button
+                className="dashboard-modal-close"
+                onClick={handleCloseVisaGrantPreview}>
+                ✕
+              </button>
+            </div>
+          </div>
+          <div
+            className="dashboard-modal-body"
+            style={{ position: "relative", minHeight: "500px" }}>
+            {isVisaPreviewGenerating ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
+                  minHeight: "500px",
+                  color: "#ffffff",
+                  gap: "14px",
+                }}>
+                <div style={{ fontSize: "2.4rem" }}>⏳</div>
+                <div style={{ fontSize: "1.05rem", fontWeight: "500" }}>
+                  Generating official Australian Visa Grant Notice PDF...
+                </div>
+              </div>
+            ) : visaPreviewPdfUrl ? (
+              <iframe
+                src={visaPreviewPdfUrl}
+                title="Visa Grant Notice PDF Preview"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  minHeight: "500px",
+                  border: "none",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  padding: "40px",
+                  textAlign: "center",
+                  color: "#cbd5e1",
+                }}>
+                No preview available.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -2023,6 +3241,11 @@ function Dashboard() {
                 className={`menu-item ${activeTab === "offer-letters" ? "active" : ""}`}
                 onClick={() => setActiveTab("offer-letters")}>
                 <span>✉️</span> Offer Letters
+              </div>
+              <div
+                className={`menu-item ${activeTab === "visa-grant" ? "active" : ""}`}
+                onClick={() => setActiveTab("visa-grant")}>
+                <span>🪪</span> Visa Grant Letter
               </div>
             </>
           )}
@@ -2203,6 +3426,35 @@ function Dashboard() {
                     {offerLettersList.length}
                   </div>
                 </div>
+                <div
+                  onClick={() => setActiveTab("visa-grant")}
+                  style={{
+                    cursor: "pointer",
+                    background: "white",
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+                    borderLeft: "4px solid #059669",
+                    minWidth: "110px",
+                  }}>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      textTransform: "uppercase",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}>
+                    Grant Letters
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.4rem",
+                      fontWeight: 700,
+                      color: "#059669",
+                    }}>
+                    {savedVisaGrants.length}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2214,6 +3466,7 @@ function Dashboard() {
             {renderPaymentsTable()}
             {renderCompaniesTable()}
             {renderOfferLettersTable()}
+            {renderSavedVisaGrantsTable()}
             {renderUsersTable()}
           </>
         )}
@@ -2268,6 +3521,13 @@ function Dashboard() {
           <>
             <div className="card">
               <h2>Create New Visa</h2>
+              {visaAlert && (
+                <div
+                  className={`alert alert-${visaAlert.type}`}
+                  style={{ marginBottom: "16px" }}>
+                  {visaAlert.message}
+                </div>
+              )}
               <form onSubmit={handleCreateVisa}>
                 <div className="form-row">
                   <div className="form-group" style={{ flex: "1 1 100%" }}>
@@ -2352,10 +3612,11 @@ function Dashboard() {
                       display: "block",
                       marginBottom: "8px",
                     }}>
-                    Attach Documents (Sent to backend in array)
+                    Upload Documents (Passport, Offer Letter, Proof of Funds,
+                    etc.)
                   </label>
 
-                  {uploadedDocs.length > 0 ?
+                  {uploadedDocs.length > 0 ? (
                     <ul style={{ paddingLeft: "20px", marginBottom: "16px" }}>
                       {uploadedDocs.map((doc, idx) => (
                         <li key={idx} style={{ marginBottom: "6px" }}>
@@ -2383,25 +3644,27 @@ function Dashboard() {
                         </li>
                       ))}
                     </ul>
-                  : <p
+                  ) : (
+                    <p
                       style={{
                         fontSize: "0.9rem",
                         color: "#777",
                         marginBottom: "12px",
                       }}>
-                      No documents attached yet.
+                      No documents added yet. Select a file, give it a name, and
+                      click "Add to List".
                     </p>
-                  }
+                  )}
 
                   <div className="form-row" style={{ alignItems: "flex-end" }}>
                     <div
                       className="form-group"
                       style={{ flex: 1, minWidth: "200px" }}>
-                      <label>Document Name</label>
+                      <label>Document Name (e.g. Passport Copy)</label>
                       <input
                         type="text"
                         className="form-control"
-                        placeholder="e.g. Passport Copy"
+                        placeholder="e.g. Applicant Passport Copy"
                         value={currentDocName}
                         onChange={(e) => setCurrentDocName(e.target.value)}
                       />
@@ -2432,8 +3695,11 @@ function Dashboard() {
                 </div>
 
                 <div style={{ marginTop: "20px" }}>
-                  <button type="submit" className="btn btn-primary">
-                    Create Visa
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={isVisaSubmitting}>
+                    {isVisaSubmitting ? "Creating Visa..." : "Create Visa"}
                   </button>
                 </div>
               </form>
@@ -2735,7 +4001,8 @@ function Dashboard() {
                   marginTop: "-10px",
                   marginBottom: "20px",
                 }}>
-                Add an employer or sponsor company registered in Australia, New Zealand, or Canada.
+                Add an employer or sponsor company registered in Australia, New
+                Zealand, or Canada.
               </p>
               {companyAlert && (
                 <div
@@ -2799,17 +4066,52 @@ function Dashboard() {
 
         {activeTab === "offer-letters" && role === "admin" && (
           <>
-            <div className="card">
-              <h2>Create Offer Letter</h2>
-              <p
+            <div className="card" style={{ marginBottom: "24px" }}>
+              <div
                 style={{
-                  color: "var(--text-secondary)",
-                  fontSize: "0.85rem",
-                  marginTop: "-10px",
-                  marginBottom: "20px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                  marginBottom: "16px",
                 }}>
-                Generate an official offer letter linking a registered company to an applicant user account.
-              </p>
+                <div>
+                  <h2 style={{ margin: 0, paddingBottom: "4px" }}>
+                    Create Offer Letter (Grant Letter of Sponsorship for
+                    Australia)
+                  </h2>
+                  <p
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: "0.85rem",
+                      margin: 0,
+                    }}>
+                    Generate high-fidelity Australian Department of Home Affairs
+                    sponsorship grant letters with custom variables.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                    onClick={handleRegenerateOfferLetterVariables}
+                    title="Generate new random reference, client ID, approval ID, receipt number, and dates">
+                    🎲 Randomize IDs
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                    onClick={() =>
+                      handleOpenOfferLetterPreview(offerLetterFormData)
+                    }>
+                    👁️ Preview Live PDF
+                  </button>
+                </div>
+              </div>
+
               {offerLetterAlert && (
                 <div
                   className={`dashboard-alert dashboard-alert-${offerLetterAlert.type}`}>
@@ -2827,15 +4129,23 @@ function Dashboard() {
                   </button>
                 </div>
               )}
+
               <form onSubmit={handleCreateOfferLetter}>
-                <div className="form-row">
+                {/* Core Assignment */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                    gap: "14px",
+                    marginBottom: "8px",
+                  }}>
                   <div className="form-group">
                     <div
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
-                        marginBottom: "8px",
+                        marginBottom: "6px",
                       }}>
                       <label style={{ fontWeight: "600", margin: 0 }}>
                         Company *
@@ -2860,12 +4170,7 @@ function Dashboard() {
                     <select
                       className="form-control"
                       value={offerLetterFormData.companyId}
-                      onChange={(e) =>
-                        setOfferLetterFormData({
-                          ...offerLetterFormData,
-                          companyId: e.target.value,
-                        })
-                      }
+                      onChange={handleCompanySelectChange}
                       required>
                       <option value="">-- Select Company --</option>
                       {companiesList.map((comp) => (
@@ -2877,18 +4182,13 @@ function Dashboard() {
                   </div>
 
                   <div className="form-group">
-                    <label style={{ fontWeight: "600" }}>
+                    <label style={{ fontWeight: "600", marginBottom: "6px" }}>
                       Applicant / User Account *
                     </label>
                     <select
                       className="form-control"
                       value={offerLetterFormData.userId}
-                      onChange={(e) =>
-                        setOfferLetterFormData({
-                          ...offerLetterFormData,
-                          userId: e.target.value,
-                        })
-                      }
+                      onChange={handleUserSelectChange}
                       required>
                       <option value="">-- Select User Account --</option>
                       {usersList.map((u) => (
@@ -2901,7 +4201,7 @@ function Dashboard() {
                   </div>
 
                   <div className="form-group">
-                    <label style={{ fontWeight: "600" }}>
+                    <label style={{ fontWeight: "600", marginBottom: "6px" }}>
                       Reference Number *
                     </label>
                     <div style={{ display: "flex", gap: "8px" }}>
@@ -2921,34 +4221,353 @@ function Dashboard() {
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={handleGenerateOfferLetterRef}
+                        onClick={() =>
+                          setOfferLetterFormData((prev) => ({
+                            ...prev,
+                            refrenceNumber: `OL-AU-${generate8CharRef()}`,
+                          }))
+                        }
                         title="Auto-generate reference number"
                         style={{ whiteSpace: "nowrap", padding: "8px 14px" }}>
-                        🎲 Gen Ref
+                        🎲 Gen
                       </button>
                     </div>
                   </div>
                 </div>
 
+                {/* Section 1: Sponsor Quote Details */}
+                <div className="offer-letter-section-header">
+                  <span>
+                    🏢 Sponsor & Official Quote Details (Page 1 Header)
+                  </span>
+                  <span className="variable-badge">Header Variables</span>
+                </div>
                 <div
-                  style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label>Name of Sponsor</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.sponsorName}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          sponsorName: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. HD Contractor Limited"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Sponsor Address</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.sponsorAddress}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          sponsorAddress: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. 54B Tidal Road, Sydney NSW 2000, Australia"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Client ID (11 digits)</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={offerLetterFormData.clientId}
+                        onChange={(e) =>
+                          setOfferLetterFormData({
+                            ...offerLetterFormData,
+                            clientId: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. 15622175210"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setOfferLetterFormData((prev) => ({
+                            ...prev,
+                            clientId: generateNumericString(11),
+                          }))
+                        }>
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Sponsorship Approval ID (10 digits)</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={offerLetterFormData.sponsorshipApprovalId}
+                        onChange={(e) =>
+                          setOfferLetterFormData({
+                            ...offerLetterFormData,
+                            sponsorshipApprovalId: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. 1740568430"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setOfferLetterFormData((prev) => ({
+                            ...prev,
+                            sponsorshipApprovalId: generateNumericString(10),
+                          }))
+                        }>
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>File Number</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.fileNumber}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          fileNumber: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. ABD2026/420367"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Sponsorship Fee Receipt Number</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.sponsorshipFeeReceiptNumber}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          sponsorshipFeeReceiptNumber: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. 100001750031"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Date of Sponsorship Approval</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.dateOfApproval}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          dateOfApproval: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. 03 September 2026"
+                    />
+                  </div>
+                </div>
+
+                {/* Section 2: Applicant & Grant Details */}
+                <div className="offer-letter-section-header">
+                  <span>
+                    👤 Applicant & Status Details (Page 1 & 2 Grant Info)
+                  </span>
+                  <span className="variable-badge">Recipient Variables</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label>Applicant Full Name</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.applicantName}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          applicantName: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. MD Shaminuzzaman"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Nationality</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.nationality}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          nationality: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Bangladeshi"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Status</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.status}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          status: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Issued"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Passport Number</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={offerLetterFormData.passportNumber}
+                        onChange={(e) =>
+                          setOfferLetterFormData({
+                            ...offerLetterFormData,
+                            passportNumber: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. A09820252"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setOfferLetterFormData((prev) => ({
+                            ...prev,
+                            passportNumber: `A${generateNumericString(8)}`,
+                          }))
+                        }>
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Sponsorship Number</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={offerLetterFormData.sponsorshipNumber}
+                        onChange={(e) =>
+                          setOfferLetterFormData({
+                            ...offerLetterFormData,
+                            sponsorshipNumber: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. W8420862"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setOfferLetterFormData((prev) => ({
+                            ...prev,
+                            sponsorshipNumber: `W${generateNumericString(7)}`,
+                          }))
+                        }>
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Issue Date</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.issueDate}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          issueDate: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. 03 September 2026"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Valid Till</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={offerLetterFormData.validTill}
+                      onChange={(e) =>
+                        setOfferLetterFormData({
+                          ...offerLetterFormData,
+                          validTill: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. 03 March 2027"
+                    />
+                  </div>
+                </div>
+
+                {/* Form Buttons */}
+                <div
+                  style={{
+                    marginTop: "20px",
+                    display: "flex",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}>
                   <button
                     type="submit"
                     className="btn btn-primary"
                     disabled={isOfferLetterSubmitting}>
-                    {isOfferLetterSubmitting
-                      ? "Creating..."
-                      : "✉️ Create Offer Letter"}
+                    {isOfferLetterSubmitting ?
+                      "Creating..."
+                    : "✉️ Create Offer Letter"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() =>
+                      handleOpenOfferLetterPreview(offerLetterFormData)
+                    }>
+                    👁️ Preview Offer Letter
                   </button>
                   <button
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => {
-                      setOfferLetterFormData({
-                        companyId: "",
-                        userId: "",
-                        refrenceNumber: "",
-                      });
+                      setOfferLetterFormData(getInitialOfferLetterFormData());
                       setOfferLetterAlert(null);
                     }}>
                     Reset Form
@@ -2959,9 +4578,440 @@ function Dashboard() {
             {renderOfferLettersTable()}
           </>
         )}
+
+        {activeTab === "visa-grant" && (
+          <>
+            <div className="card">
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "16px",
+                  flexWrap: "wrap",
+                  gap: "10px",
+                }}>
+                <div>
+                  <h2 style={{ margin: 0, paddingBottom: "4px" }}>
+                    Australian Visa Grant Letter Generator
+                  </h2>
+                  <p
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: "0.85rem",
+                      margin: 0,
+                    }}>
+                    Official Australian Department of Home Affairs Visa Grant Notice PDF. All variables are managed directly by the admin without requiring backend user or company records.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                    onClick={handleRegenerateVisaGrantVariables}
+                    title="Generate new random Grant Number, Application ID, TRN, and dates">
+                    🎲 Randomize IDs
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                    onClick={() => handleOpenVisaGrantPreview(visaGrantFormData)}>
+                    👁️ Live Preview
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                    onClick={() => handleDownloadVisaGrantPDF(visaGrantFormData)}>
+                    📥 Download PDF
+                  </button>
+                </div>
+              </div>
+
+              {visaGrantAlert && (
+                <div
+                  className={`alert alert-${visaGrantAlert.type}`}
+                  style={{ marginBottom: "16px" }}>
+                  <span>{visaGrantAlert.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVisaGrantAlert(null)}
+                    style={{
+                      float: "right",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                    }}>
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveVisaGrant}>
+                {/* Section 1: Applicant & Identity Details */}
+                <div className="offer-letter-section-header">
+                  <span>👤 Applicant & Recipient Details</span>
+                  <span className="variable-badge">Personal Information</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Applicant Full Legal Name *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="applicantName"
+                      value={visaGrantFormData.applicantName || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. PATEL Chintankumar Ranchhodbhai"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Date of Birth *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="dateOfBirth"
+                      value={visaGrantFormData.dateOfBirth || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. 25 September 1999"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Passport / Travel Document Number *
+                    </label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="passportNumber"
+                        value={visaGrantFormData.passportNumber || ""}
+                        onChange={handleVisaGrantChange}
+                        placeholder="e.g. U4019655IND"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setVisaGrantFormData((prev) => ({
+                            ...prev,
+                            passportNumber: `U${generateNumericString(7)}IND`,
+                          }))
+                        }
+                        title="Randomize Passport #">
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Country of Passport / Nationality *
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="passportCountry"
+                      value={visaGrantFormData.passportCountry || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. INDIA"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Section 2: Visa Application & Grant Identifiers */}
+                <div className="offer-letter-section-header">
+                  <span>📄 Visa Application & Grant Identifiers</span>
+                  <span className="variable-badge">Official Identifiers</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Visa Class / Subclass *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="visaName"
+                      value={visaGrantFormData.visaName || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. Transit (subclass 771)"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Application Status *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="applicationStatus"
+                      value={visaGrantFormData.applicationStatus || "Granted"}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. Granted"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Visa Grant Number (13 digits) *
+                    </label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="visaGrantNumber"
+                        value={visaGrantFormData.visaGrantNumber || ""}
+                        onChange={handleVisaGrantChange}
+                        placeholder="e.g. 1139500159106"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setVisaGrantFormData((prev) => ({
+                            ...prev,
+                            visaGrantNumber: `1139500${generateNumericString(6)}`,
+                          }))
+                        }
+                        title="Randomize Grant #">
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Application ID (9 digits) *</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="applicationId"
+                        value={visaGrantFormData.applicationId || ""}
+                        onChange={handleVisaGrantChange}
+                        placeholder="e.g. 106951626"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setVisaGrantFormData((prev) => ({
+                            ...prev,
+                            applicationId: generateNumericString(9),
+                          }))
+                        }
+                        title="Randomize App ID">
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Transaction Reference Number (TRN) *
+                    </label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="trn"
+                        value={visaGrantFormData.trn || ""}
+                        onChange={handleVisaGrantChange}
+                        placeholder="e.g. EGP6QH59AO"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setVisaGrantFormData((prev) => ({
+                            ...prev,
+                            trn: `EGP${generate8CharRef().slice(0, 7)}`,
+                          }))
+                        }
+                        title="Randomize TRN">
+                        🎲
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Duration & Travel Details */}
+                <div className="offer-letter-section-header">
+                  <span>✈️ Stay Duration & Travel Details</span>
+                  <span className="variable-badge">Travel Limits</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Visa Grant Date *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="grantDate"
+                      value={visaGrantFormData.grantDate || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. 04 February 2025"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Must Not Arrive After *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="mustNotArriveAfter"
+                      value={visaGrantFormData.mustNotArriveAfter || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. 04 February 2026"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Length of Stay *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="lengthOfStay"
+                      value={visaGrantFormData.lengthOfStay || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. 3 day(s) from the date of each arrival"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Travel / Entries Allowed *</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="travel"
+                      value={visaGrantFormData.travel || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="e.g. Multiple entries"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Section 4: Conditions & Notice */}
+                <div className="offer-letter-section-header">
+                  <span>📋 Visa Conditions & Airline Notice</span>
+                  <span className="variable-badge">Conditions Text</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                    gap: "14px",
+                  }}>
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>
+                      Visa Conditions (One per line)
+                    </label>
+                    <textarea
+                      className="form-control"
+                      rows="3"
+                      name="conditions"
+                      value={visaGrantFormData.conditions || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="8101 - No work&#10;8201 - Maximum three months study"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontWeight: "600" }}>Why Keep This Notice (Bullet text)</label>
+                    <textarea
+                      className="form-control"
+                      rows="3"
+                      name="whyKeepNotice"
+                      value={visaGrantFormData.whyKeepNotice || ""}
+                      onChange={handleVisaGrantChange}
+                      placeholder="Airlines might ask for details in this notice so they can carry out checks to allow you to board the plane."
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    marginTop: "20px",
+                    flexWrap: "wrap",
+                  }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary">
+                    💾 Save to Records
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => handleOpenVisaGrantPreview(visaGrantFormData)}>
+                    👁️ Preview Visa PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={downloadingVisaId === "form"}
+                    onClick={() => handleDownloadVisaGrantPDF(visaGrantFormData, "form")}>
+                    {downloadingVisaId === "form" ? "⏳ Generating..." : "📥 Download PDF"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleRegenerateVisaGrantVariables}>
+                    🎲 Randomize IDs
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setVisaGrantFormData(getInitialVisaGrantFormData());
+                      setVisaGrantAlert({
+                        type: "info",
+                        message: "Reset to default sample variables.",
+                      });
+                    }}>
+                    Reset Defaults
+                  </button>
+                </div>
+              </form>
+            </div>
+            {renderSavedVisaGrantsTable()}
+          </>
+        )}
       </main>
       {renderEditCompanyModal()}
       {renderEditOfferLetterModal()}
+      {renderOfferLetterPreviewModal()}
+      {renderVisaPreviewModal()}
     </div>
   );
 }
