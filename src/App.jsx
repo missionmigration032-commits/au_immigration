@@ -15,6 +15,7 @@ import Dashboard from "./pages/Dashboard";
 import UserPortal from "./pages/UserPortal";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCancel from "./pages/PaymentCancel";
+import CalculatePayment from "./pages/CalculatePayment";
 
 
 function App() {
@@ -42,7 +43,7 @@ function App() {
           <Route path="/evo/firstParty" element={<VevoFirstParty />} />
           <Route path="/lusc/login" element={<ImmiAccountLogin />} />
           
-          {/* Payment Routes (Stripe Redirects) */}
+          {/* Payment Routes (Razorpay) */}
           <Route path="/payment/success" element={<PaymentSuccess />} />
           <Route path="/payment/cancel" element={<PaymentCancel />} />
           
@@ -68,6 +69,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['user']}>
                 <UserPortal initialSection="make-payment-section" />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/user-portal/calculate-payment" 
+            element={
+              <ProtectedRoute allowedRoles={['user']}>
+                <CalculatePayment />
               </ProtectedRoute>
             } 
           />

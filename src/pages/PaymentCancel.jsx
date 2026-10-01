@@ -87,7 +87,7 @@ function PaymentCancel() {
           </h1>
 
           <p style={{ color: "#475569", fontSize: "14px", lineHeight: "1.6", margin: "0 0 20px 0" }}>
-            Your Stripe Checkout session was cancelled or timed out. No funds were debited from your card or account.
+            Your Razorpay transaction was cancelled or timed out. No funds were debited from your card or account.
           </p>
 
           <p style={{ color: "#64748b", fontSize: "12px", margin: "0 0 25px 0" }}>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
-import { verifyPaymentSession } from "../services/stripeService";
+import { verifyRazorpayOrder } from "../services/razorpayService";
 import logoHA from "../assets/images/logo-ha.png";
 import logoStacked from "../assets/images/logostacked.png";
 import "./immiaccount.css";
@@ -8,27 +8,39 @@ import "./immiaccount.css";
 function PaymentSuccess() {
   const location = useLocation();
   const navigate = useNavigate();
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
 
   const queryParams = new URLSearchParams(location.search);
-  const sessionId = queryParams.get("session_id");
+  const orderId = queryParams.get("order_id") || queryParams.get("session_id");
   const paymentId = queryParams.get("payment_id");
+  const razorpayPaymentId = queryParams.get("razorpay_payment_id");
   const token = localStorage.getItem("token");
 
   useEffect(() => {
     let isMounted = true;
 
     const verify = async () => {
-      if (!sessionId) {
-        setError("Missing session_id in redirect URL.");
+      if (!orderId && !paymentId) {
+        setError("Missing order_id or payment reference in redirect URL.");
         setLoading(false);
         return;
       }
 
       try {
-        const result = await verifyPaymentSession(sessionId, token);
+        let result;
+        if (orderId) {
+          result = await verifyRazorpayOrder(orderId, token);
+        } else if (paymentId) {
+          const res = await fetch(`${API_URL}/api/payments/${paymentId}?origin=au`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const pData = await res.json();
+          result = { payment: pData.payment || pData };
+        }
+
         if (isMounted) {
           setPaymentData(result.payment);
           setLoading(false);
@@ -36,7 +48,7 @@ function PaymentSuccess() {
       } catch (err) {
         console.error("Verification error:", err);
         if (isMounted) {
-          setError(err.message || "Failed to verify Stripe payment session");
+          setError(err.message || "Failed to verify Razorpay payment order");
           setLoading(false);
         }
       }
@@ -47,7 +59,7 @@ function PaymentSuccess() {
     return () => {
       isMounted = false;
     };
-  }, [sessionId, token]);
+  }, [orderId, paymentId, token]);
 
   const handlePrint = () => {
     window.print();
@@ -66,9 +78,12 @@ function PaymentSuccess() {
     paymentData?.referenceNumber ||
     "RC" + Math.floor(100000000 + Math.random() * 900000000);
   const voucherNum =
+    razorpayPaymentId ||
+    paymentData?.razorpayPaymentId ||
+    paymentData?.razorpayOrderId ||
     paymentData?.stripePaymentIntentId ||
     paymentData?.stripeSessionId ||
-    "STRIPE-" + (sessionId ? sessionId.slice(-8) : "APPROVED");
+    "RZP-" + (orderId ? orderId.slice(-8) : "APPROVED");
   const amountFormatted = paymentData?.amount
     ? parseFloat(paymentData.amount).toFixed(2)
     : "145.00";
@@ -116,27 +131,31 @@ function PaymentSuccess() {
           <div
             style={{
               backgroundColor: "white",
-              padding: "40px",
-              borderRadius: "8px",
+              padding: "48px 24px",
+              borderRadius: "4px",
+              border: "1px solid #ccd4db",
               textAlign: "center",
-              boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
+              maxWidth: "600px",
+              margin: "30px auto",
             }}>
             <div
               style={{
-                width: "48px",
-                height: "48px",
-                border: "4px solid #e0e0e0",
-                borderTopColor: "#0056b3",
+                width: "44px",
+                height: "44px",
+                border: "3.5px solid #e2e8f0",
+                borderTopColor: "#004b87",
+                borderRightColor: "#003087",
                 borderRadius: "50%",
-                animation: "spin 1s linear infinite",
-                margin: "0 auto 20px auto",
+                animation: "spin 0.85s linear infinite",
+                margin: "0 auto 16px auto",
               }}
             />
-            <h2 style={{ color: "#002b49", margin: "0 0 10px 0" }}>
-              Verifying Stripe Payment...
+            <h2 style={{ color: "#002b49", margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
+              Verifying Payment with Department of Home Affairs...
             </h2>
-            <p style={{ color: "#666", margin: 0, fontSize: "14px" }}>
-              Please wait while we confirm your transaction with the Department of Home Affairs.
+            <p style={{ color: "#64748b", margin: 0, fontSize: "13px" }}>
+              Please wait while your official payment receipt and transaction confirmation are retrieved.
             </p>
             <style>{`
               @keyframes spin {
@@ -223,7 +242,7 @@ function PaymentSuccess() {
                 Payment Successful &amp; Verified
               </h1>
               <p style={{ color: "#475569", margin: 0, fontSize: "13px" }}>
-                Your payment has been securely processed by Stripe and verified by the Australian Department of Home Affairs.
+                Your payment has been securely processed by Razorpay and verified by the Australian Department of Home Affairs.
               </p>
             </div>
 
@@ -265,7 +284,7 @@ function PaymentSuccess() {
                     padding: "4px 10px",
                     borderRadius: "4px",
                   }}>
-                  PAID (STRIPE)
+                  PAID (RAZORPAY)
                 </span>
               </div>
 
@@ -283,10 +302,18 @@ function PaymentSuccess() {
                   </tr>
                   <tr>
                     <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Stripe Session ID:
+                      Razorpay Order ID:
                     </th>
                     <td style={{ textAlign: "right", padding: "8px 0", fontFamily: "monospace", fontSize: "12px" }}>
-                      {sessionId}
+                      {orderId || paymentData?.razorpayOrderId || "N/A"}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
+                      Razorpay Payment ID:
+                    </th>
+                    <td style={{ textAlign: "right", padding: "8px 0", fontFamily: "monospace", fontSize: "12px" }}>
+                      {voucherNum}
                     </td>
                   </tr>
                   <tr>
@@ -302,7 +329,7 @@ function PaymentSuccess() {
                       Payment Method:
                     </th>
                     <td style={{ textAlign: "right", padding: "8px 0", fontSize: "13px" }}>
-                      Stripe (Credit / Debit Card)
+                      {paymentData?.paymentMethod ? paymentData.paymentMethod.toUpperCase() : "Razorpay (Credit / Debit Card)"}
                     </td>
                   </tr>
                   <tr>

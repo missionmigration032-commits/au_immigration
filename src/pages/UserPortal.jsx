@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./immiaccount.css";
 import logoStacked from "../assets/images/logostacked.png";
-import { fetchStripeConfig, createCheckoutSession } from "../services/stripeService";
+import {
+  fetchRazorpayConfig,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  loadRazorpayScript,
+} from "../services/razorpayService";
 
 function UserPortal({ initialSection }) {
   const navigate = useNavigate();
@@ -23,6 +28,7 @@ function UserPortal({ initialSection }) {
   const [viewMode, setViewMode] = useState("table"); // 'table' or 'list'
 
   // Dropdowns & Modals
+  const lastPaymentKeyRef = useRef("");
   const [openDropdown, setOpenDropdown] = useState(null);
   const [selectedVisa, setSelectedVisa] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -65,6 +71,7 @@ function UserPortal({ initialSection }) {
     }
     return [];
   });
+  const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
 
   // Format full name as given name + family name (e.g. "Ankit Kumar")
   const formatApplicantFullName = (given, family) => {
@@ -94,6 +101,7 @@ function UserPortal({ initialSection }) {
     };
 
     const fetchPaymentsFromAPI = async () => {
+      setIsPaymentsLoading(true);
       try {
         const response = await fetch(`${API_URL}/api/payments?origin=au`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -190,6 +198,8 @@ function UserPortal({ initialSection }) {
         }
       } catch (err) {
         console.error("Error fetching payments from API in UserPortal:", err);
+      } finally {
+        setIsPaymentsLoading(false);
       }
       syncPaymentsFromStorage();
     };
@@ -377,7 +387,7 @@ function UserPortal({ initialSection }) {
   const [makePaymentData, setMakePaymentData] = useState({
     paymentId: null,
     paymentRef: "HA84920155",
-    paymentType: "Pre-pay Visa Application Charge Paper Application",
+    paymentType: "Pay for online(s) application",
     processingOffice: "New Delhi",
     familyName: "Smith",
     givenNames: "John",
@@ -389,11 +399,11 @@ function UserPortal({ initialSection }) {
     comments: "cscsc",
     status: "Pending",
   });
-  const [isEditingPaymentDetails, setIsEditingPaymentDetails] = useState(false);
+  const [isEditingPaymentDetails, setIsEditingPaymentDetails] = useState(true);
   const [paymentEditForm, setPaymentEditForm] = useState({
     paymentId: null,
     paymentRef: "HA84920155",
-    paymentType: "Pre-pay Visa Application Charge Paper Application",
+    paymentType: "Pay for online(s) application",
     processingOffice: "New Delhi",
     familyName: "Smith",
     givenNames: "John",
@@ -406,17 +416,22 @@ function UserPortal({ initialSection }) {
     status: "Pending",
   });
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
-  const [isStripeLoading, setIsStripeLoading] = useState(false);
-  const [stripeConfig, setStripeConfig] = useState({ publishableKey: "", isConfigured: false });
+  const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+  const isStripeLoading = isPaymentLoading; // Compatibility alias
+  const setIsStripeLoading = setIsPaymentLoading;
+  const [razorpayConfig, setRazorpayConfig] = useState({ keyId: "", isConfigured: false });
+  const stripeConfig = razorpayConfig; // Compatibility alias
   const [paymentCompletedReceipt, setPaymentCompletedReceipt] = useState(null);
   const [calcNote, setCalcNote] = useState("");
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("stripe");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("razorpay");
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
 
   useEffect(() => {
-    fetchStripeConfig().then((cfg) => {
-      if (cfg && cfg.isConfigured) {
-        setStripeConfig(cfg);
+    fetchRazorpayConfig().then((cfg) => {
+      if (cfg && (cfg.isConfigured || cfg.keyId)) {
+        setRazorpayConfig(cfg);
       }
     });
   }, []);
@@ -951,7 +966,7 @@ function UserPortal({ initialSection }) {
         target.ref ||
         target.referenceNumber ||
         "HA" + Math.floor(10000000 + Math.random() * 90000000),
-      paymentType: "Pre-pay Visa Application Charge Paper Application",
+      paymentType: target.type || target.paymentType || "Pay for online(s) application",
       processingOffice:
         target.office && target.office !== "Online Payments Centre" ?
           target.office
@@ -974,14 +989,20 @@ function UserPortal({ initialSection }) {
       status: target.status || "Pending",
     };
 
+    const targetPayId = target.id || target._id || "";
+    if (targetPayId) {
+      localStorage.removeItem(`calc_amount_${targetPayId}`);
+    }
+    localStorage.removeItem("last_calculated_amount");
+    lastPaymentKeyRef.current = `/user-portal/payment?paymentId=${targetPayId}`;
     setMakePaymentData(prepayData);
     setPaymentEditForm(prepayData);
-    setIsEditingPaymentDetails(false);
+    setIsEditingPaymentDetails(true);
     setPaymentCompletedReceipt(null);
     setCalcNote("");
     setActiveSection("make-payment-section");
     navigate(
-      `/user-portal/payment?paymentId=${target.id || target._id || ""}`,
+      `/user-portal/payment?paymentId=${targetPayId}`,
     );
   };
 
@@ -993,7 +1014,20 @@ function UserPortal({ initialSection }) {
     ) {
       setActiveSection("make-payment-section");
       const searchParams = new URLSearchParams(location.search);
-      const qPayId = searchParams.get("paymentId");
+      const qPayId = searchParams.get("paymentId") || "";
+      const qCalculatedAmt = searchParams.get("calculatedAmount");
+      const currentKey = `${location.pathname}?paymentId=${qPayId}${qCalculatedAmt ? `&amt=${qCalculatedAmt}` : ""}`;
+
+      // Check if we have a calculated amount in localStorage or query
+      const storedCalc = qPayId ? localStorage.getItem(`calc_amount_${qPayId}`) : null;
+      const latestCalc = qCalculatedAmt || storedCalc;
+
+      // If already initialized for this payment key, do not overwrite or reset isEditingPaymentDetails
+      if (lastPaymentKeyRef.current === currentKey && makePaymentData?.paymentId) {
+        return;
+      }
+      lastPaymentKeyRef.current = currentKey;
+
       let matchedPay = null;
       if (qPayId && payments.length > 0) {
         matchedPay = payments.find(
@@ -1040,13 +1074,16 @@ function UserPortal({ initialSection }) {
         }
       }
 
+      const isActuallyCalculated = Boolean(latestCalc);
+      const effectiveAmt = isActuallyCalculated ? parseFloat(latestCalc).toFixed(2) : "";
+
       const initialData = {
         paymentId: matchedPay?.id || matchedPay?._id || null,
         paymentRef:
           matchedPay?.ref ||
           matchedPay?.referenceNumber ||
           "HA" + Math.floor(10000000 + Math.random() * 90000000),
-        paymentType: "Pre-pay Visa Application Charge Paper Application",
+        paymentType: matchedPay?.type || matchedPay?.paymentType || "Pay for online(s) application",
         processingOffice:
           matchedPay?.office &&
           matchedPay.office !== "Online Payments Centre" ?
@@ -1056,12 +1093,9 @@ function UserPortal({ initialSection }) {
         givenNames: givName,
         dateOfBirth: dob,
         visaSubclass: subVal || "600 Visitor",
-        amount: "",
-        backendAmount:
-          matchedPay?.amount !== undefined && matchedPay?.amount !== null ?
-            String(matchedPay.amount)
-          : "",
-        isCalculated: false,
+        amount: effectiveAmt,
+        backendAmount: matchedPay?.amount !== undefined && matchedPay?.amount !== null ? String(matchedPay.amount) : "",
+        isCalculated: isActuallyCalculated,
         comments:
           matchedPay?.comments ||
           (matchedPay?.internalRef && matchedPay.internalRef !== "—" ?
@@ -1072,120 +1106,99 @@ function UserPortal({ initialSection }) {
 
       setMakePaymentData(initialData);
       setPaymentEditForm(initialData);
+      setIsEditingPaymentDetails(true);
+
+      if (isActuallyCalculated) {
+        setCalcNote(`Amount calculated: $${effectiveAmt} AUD`);
+        setTimeout(() => setCalcNote(""), 5000);
+      }
     }
   }, [location.pathname, location.search, payments, allVisas, initialSection]);
 
-  const handleCalculateAmount = async () => {
-    const targetId = makePaymentData.paymentId;
-    let backendAmount = makePaymentData.backendAmount;
-
-    // Fetch directly from backend API for this specific payment record
-    if (targetId && token) {
-      try {
-        const response = await fetch(
-          `${API_URL}/api/payments/${targetId}?origin=au`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (response.ok) {
-          const resData = await response.json();
-          const pData = resData.payment || resData.data || resData;
-          if (pData && pData.amount !== undefined && pData.amount !== null) {
-            backendAmount = String(pData.amount);
-          }
-        }
-      } catch (err) {
-        console.error("Error fetching payment amount from backend:", err);
-      }
-    }
-
-    // Fallback to payments array in state if needed
-    if (!backendAmount && targetId) {
-      const found = payments.find(
-        (p) => String(p.id || p._id) === String(targetId),
-      );
-      if (found && found.amount !== undefined && found.amount !== null) {
-        backendAmount = String(found.amount);
-      }
-    }
-
-    if (!backendAmount && makePaymentData.backendAmount) {
-      backendAmount = String(makePaymentData.backendAmount);
-    }
-
-    // If still empty, check first available payment with an amount
-    if (!backendAmount && payments.length > 0) {
-      const firstWithAmt = payments.find((p) => p.amount);
-      if (firstWithAmt) backendAmount = String(firstWithAmt.amount);
-    }
-
-    const finalAmount =
-      backendAmount ? parseFloat(backendAmount).toFixed(2) : "0.00";
-
-    setMakePaymentData((prev) => ({
-      ...prev,
-      amount: finalAmount,
-      backendAmount: finalAmount,
-      isCalculated: true,
-    }));
-    setPaymentEditForm((prev) => ({
-      ...prev,
-      amount: finalAmount,
-      backendAmount: finalAmount,
-      isCalculated: true,
-    }));
-    setCalcNote(`Amount from payment record: $${finalAmount} AUD`);
-    setTimeout(() => setCalcNote(""), 4000);
+  const handleCalculateAmount = () => {
+    const targetId = makePaymentData.paymentId || paymentEditForm.paymentId || "";
+    const sub = paymentEditForm.visaSubclass || makePaymentData.visaSubclass || "600 Visitor/Tourist outside Australia";
+    navigate(`/user-portal/calculate-payment?paymentId=${targetId}&subclass=${encodeURIComponent(sub)}`);
   };
 
   const handleSavePaymentDetails = async () => {
-    setMakePaymentData({ ...paymentEditForm });
-    setIsEditingPaymentDetails(false);
+    if (!paymentEditForm.isCalculated || !paymentEditForm.amount || parseFloat(paymentEditForm.amount) <= 0) {
+      alert("Please calculate the payment amount first by clicking the Calculate button.");
+      return;
+    }
+    setIsConfirmingPayment(true);
+    try {
+      const currentAmount = parseFloat(paymentEditForm.amount).toFixed(2);
+      const updatedData = {
+        ...paymentEditForm,
+        amount: currentAmount,
+        isCalculated: true,
+      };
 
-    const targetId = paymentEditForm.paymentId;
-    if (targetId) {
-      setPayments((prev) =>
-        prev.map((p) => {
-          if ((p.id || p._id) === targetId) {
-            return {
-              ...p,
-              givenNames: paymentEditForm.givenNames,
-              familyName: paymentEditForm.familyName,
-              name: `${paymentEditForm.givenNames} ${paymentEditForm.familyName}`,
-              amount: paymentEditForm.amount,
-              office: paymentEditForm.processingOffice,
-              type: paymentEditForm.paymentType,
-              comments: paymentEditForm.comments,
-            };
-          }
-          return p;
-        }),
-      );
+      const searchParams = new URLSearchParams(location.search);
+      const qPayId = searchParams.get("paymentId") || "";
+      const qCalculatedAmt = searchParams.get("calculatedAmount");
+      const currentKey = `${location.pathname}?paymentId=${qPayId}${qCalculatedAmt ? `&amt=${qCalculatedAmt}` : ""}`;
+      lastPaymentKeyRef.current = currentKey;
 
-      try {
-        await fetch(`${API_URL}/api/payments/${targetId}?origin=au`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            givenNames: paymentEditForm.givenNames,
-            familyName: paymentEditForm.familyName,
-            amount: paymentEditForm.amount,
-            issuingOffice: paymentEditForm.processingOffice,
-            visaType: paymentEditForm.visaSubclass,
-            internalRef: paymentEditForm.comments,
+      setMakePaymentData(updatedData);
+      setPaymentEditForm(updatedData);
+      setIsEditingPaymentDetails(false);
+
+      // Smoothly scroll down to the revealed payment options
+      setTimeout(() => {
+        const paymentOptionsEl = document.querySelector(".immi-payment-options-card");
+        if (paymentOptionsEl) {
+          paymentOptionsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 100);
+
+      const targetId = updatedData.paymentId;
+      if (targetId) {
+        setPayments((prev) =>
+          prev.map((p) => {
+            if ((p.id || p._id) === targetId) {
+              return {
+                ...p,
+                givenNames: updatedData.givenNames,
+                familyName: updatedData.familyName,
+                name: `${updatedData.givenNames} ${updatedData.familyName}`,
+                amount: updatedData.amount,
+                office: updatedData.processingOffice,
+                type: updatedData.paymentType,
+                comments: updatedData.comments,
+              };
+            }
+            return p;
           }),
-        });
-      } catch (err) {
-        console.error("Failed to update payment on backend:", err);
+        );
+
+        try {
+          await fetch(`${API_URL}/api/payments/${targetId}?origin=au`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              givenNames: updatedData.givenNames,
+              familyName: updatedData.familyName,
+              amount: updatedData.amount,
+              issuingOffice: updatedData.processingOffice,
+              visaType: updatedData.visaSubclass,
+              internalRef: updatedData.comments,
+            }),
+          });
+        } catch (err) {
+          console.error("Failed to update payment on backend:", err);
+        }
       }
+    } finally {
+      setIsConfirmingPayment(false);
     }
   };
 
-  const handleInitiateStripeCheckout = async (targetPayment) => {
+  const handleInitiateRazorpayPayment = async (targetPayment) => {
     if (!token) {
       alert("Your session has expired. Please log in again to proceed with payment.");
       navigate("/lusc/login");
@@ -1193,15 +1206,17 @@ function UserPortal({ initialSection }) {
     }
 
     try {
-      setIsStripeLoading(true);
+      setIsPaymentLoading(true);
 
       const pObj = targetPayment || makePaymentData || {};
       const targetId = pObj.paymentId || pObj._id || pObj.id || null;
 
       // Determine amount
-      let amt = parseFloat(pObj.amount || pObj.backendAmount || 0);
+      let amt = parseFloat(pObj.amount || 0);
       if (!amt || isNaN(amt) || amt <= 0) {
-        amt = parseFloat(calculateFeeForSubclass(pObj.visaSubclass || pObj.subclass || "600 Visitor"));
+        alert("Please calculate the payment amount before proceeding with payment.");
+        setIsPaymentLoading(false);
+        return;
       }
 
       // Determine customer email
@@ -1236,22 +1251,133 @@ function UserPortal({ initialSection }) {
         payload.visaId = vId;
       }
 
-      const sessionData = await createCheckoutSession(payload, token);
-      if (sessionData && sessionData.url) {
-        window.location.href = sessionData.url;
-      } else {
-        alert("Failed to initiate Stripe checkout: No redirect URL returned.");
-        setIsStripeLoading(false);
+      // Ensure Razorpay SDK script is loaded
+      await loadRazorpayScript();
+      if (typeof window === "undefined" || !window.Razorpay) {
+        alert("Failed to load Razorpay Checkout SDK. Please check your network connection and try again.");
+        setIsPaymentLoading(false);
+        return;
       }
+
+      // Create Razorpay order on backend
+      const orderData = await createRazorpayOrder(payload, token);
+      if (!orderData || !orderData.orderId) {
+        alert("Failed to create Razorpay order: No order ID returned from server.");
+        setIsPaymentLoading(false);
+        return;
+      }
+
+      const keyToUse = orderData.keyId || razorpayConfig.keyId;
+      if (!keyToUse) {
+        alert("Razorpay Key ID is not configured on the backend. Please check RAZORPAY_KEY_ID in your server configuration.");
+        setIsPaymentLoading(false);
+        return;
+      }
+
+      const options = {
+        key: keyToUse,
+        amount: orderData.amount,
+        currency: orderData.currency || "AUD",
+        name: "Australian Government",
+        description: `ImmiAccount Fee - ${orderData.referenceNumber || pObj.visaSubclass || "Visitor 600"}`,
+        image: "https://immi.homeaffairs.gov.au/Style%20Library/images/logo-ha.png",
+        order_id: orderData.orderId,
+        method: {
+          card: true,
+          netbanking: false,
+          wallet: false,
+          upi: false,
+          paylater: false,
+          emi: false,
+        },
+        config: {
+          display: {
+            blocks: {
+              cards: {
+                name: "Pay with Card",
+                instruments: [
+                  {
+                    method: "card",
+                  },
+                ],
+              },
+            },
+            sequence: ["block.cards"],
+            preferences: {
+              show_default_blocks: false,
+            },
+          },
+        },
+        prefill: {
+          name: (storedUsername || "Applicant").toUpperCase(),
+          email: email,
+        },
+        notes: {
+          paymentId: orderData.paymentId || "",
+          referenceNumber: orderData.referenceNumber || "",
+          origin: "au",
+        },
+        theme: {
+          color: "#004b87",
+        },
+        handler: async function (response) {
+          try {
+            setIsPaymentLoading(true);
+            const verifyRes = await verifyRazorpayPayment(
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                paymentId: orderData.paymentId,
+              },
+              token
+            );
+
+            if (verifyRes && verifyRes.verified) {
+              navigate(
+                `/payment/success?order_id=${response.razorpay_order_id}&payment_id=${orderData.paymentId}&razorpay_payment_id=${response.razorpay_payment_id}`
+              );
+            } else {
+              alert(verifyRes?.message || "Payment signature verification failed.");
+            }
+          } catch (verifyErr) {
+            console.error("Razorpay verification error:", verifyErr);
+            alert(verifyErr.message || "Failed to verify Razorpay payment on server.");
+          } finally {
+            setIsPaymentLoading(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setIsPaymentLoading(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response) {
+        console.error("Razorpay payment failed:", response.error);
+        alert(`Payment failed: ${response.error?.description || response.error?.reason || "Transaction was declined."}`);
+        setIsPaymentLoading(false);
+      });
+      rzp.open();
     } catch (err) {
-      console.error("Stripe Checkout Error:", err);
-      alert(err.message || "An error occurred while connecting to Stripe Checkout.");
-      setIsStripeLoading(false);
+      console.error("Razorpay Checkout Error:", err);
+      alert(err.message || "An error occurred while connecting to Razorpay Checkout.");
+      setIsPaymentLoading(false);
     }
   };
 
+  const handleInitiateStripeCheckout = handleInitiateRazorpayPayment;
+
   const handleSubmitPrePayment = () => {
-    handleInitiateStripeCheckout(makePaymentData);
+    if (selectedPaymentMethod === "paypal") {
+      alert(
+        "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction."
+      );
+      return;
+    }
+    handleInitiateRazorpayPayment(makePaymentData);
   };
 
   // Handle Pay Invoice Submit
@@ -2556,13 +2682,16 @@ function UserPortal({ initialSection }) {
                           {isEditingPaymentDetails ?
                             <select
                               className="immi-prepay-select"
-                              value={paymentEditForm.paymentType}
+                              value={paymentEditForm.paymentType || "Pay for online(s) application"}
                               onChange={(e) =>
                                 setPaymentEditForm({
                                   ...paymentEditForm,
                                   paymentType: e.target.value,
                                 })
                               }>
+                              <option value="Pay for online(s) application">
+                                Pay for online(s) application
+                              </option>
                               <option value="Pre-pay Visa Application Charge Paper Application">
                                 Pre-pay Visa Application Charge Paper
                                 Application
@@ -2578,7 +2707,7 @@ function UserPortal({ initialSection }) {
                               </option>
                             </select>
                           : <div className="immi-prepay-text-val">
-                              <span>{makePaymentData.paymentType}</span>
+                              <span>{makePaymentData.paymentType || "Pay for online(s) application"}</span>
                               <span
                                 style={{ fontSize: "10px", color: "#555" }}>
                                 ▼
@@ -2586,7 +2715,7 @@ function UserPortal({ initialSection }) {
                               <button
                                 type="button"
                                 className="immi-prepay-help-icon"
-                                title="Pre-pay Visa Application Charge Paper Application help"
+                                title={`${makePaymentData.paymentType || "Payment"} help`}
                                 onClick={() =>
                                   setShowHelpTooltip(!showHelpTooltip)
                                 }>
@@ -2594,8 +2723,9 @@ function UserPortal({ initialSection }) {
                               </button>
                               {showHelpTooltip && (
                                 <div className="immi-prepay-tooltip">
-                                  Pre-payment charge for visa applications
-                                  lodged using physical paper forms.
+                                  {makePaymentData.paymentType === "Pay for online(s) application"
+                                    ? "Payment charge for online visa applications lodged through ImmiAccount."
+                                    : "Pre-payment charge for visa applications lodged using physical paper forms."}
                                 </div>
                               )}
                             </div>
@@ -2659,19 +2789,9 @@ function UserPortal({ initialSection }) {
                           Family Name<span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
-                          {isEditingPaymentDetails ?
-                            <input
-                              type="text"
-                              className="immi-prepay-input"
-                              value={paymentEditForm.familyName}
-                              onChange={(e) =>
-                                setPaymentEditForm({
-                                  ...paymentEditForm,
-                                  familyName: e.target.value,
-                                })
-                              }
-                            />
-                          : <span>{makePaymentData.familyName}</span>}
+                          <span style={{ fontWeight: "500", color: "#333" }}>
+                            {paymentEditForm.familyName || makePaymentData.familyName}
+                          </span>
                         </td>
                       </tr>
 
@@ -2680,19 +2800,9 @@ function UserPortal({ initialSection }) {
                           Given Name<span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
-                          {isEditingPaymentDetails ?
-                            <input
-                              type="text"
-                              className="immi-prepay-input"
-                              value={paymentEditForm.givenNames}
-                              onChange={(e) =>
-                                setPaymentEditForm({
-                                  ...paymentEditForm,
-                                  givenNames: e.target.value,
-                                })
-                              }
-                            />
-                          : <span>{makePaymentData.givenNames}</span>}
+                          <span style={{ fontWeight: "500", color: "#333" }}>
+                            {paymentEditForm.givenNames || makePaymentData.givenNames}
+                          </span>
                         </td>
                       </tr>
 
@@ -2701,31 +2811,17 @@ function UserPortal({ initialSection }) {
                           Date of birth<span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
-                          {isEditingPaymentDetails ?
-                            <input
-                              type="text"
-                              className="immi-prepay-input"
-                              placeholder="e.g. 26 Aug 1995"
-                              value={paymentEditForm.dateOfBirth}
-                              onChange={(e) =>
-                                setPaymentEditForm({
-                                  ...paymentEditForm,
-                                  dateOfBirth: e.target.value,
-                                })
-                              }
-                            />
-                          : <div className="immi-prepay-text-val">
-                              <span>{makePaymentData.dateOfBirth}</span>
-                              <span
-                                style={{
-                                  fontSize: "14px",
-                                  marginLeft: "14px",
-                                }}
-                                title="Date of birth">
-                                📅
-                              </span>
-                            </div>
-                          }
+                          <div className="immi-prepay-text-val">
+                            <span>{paymentEditForm.dateOfBirth || makePaymentData.dateOfBirth}</span>
+                            <span
+                              style={{
+                                fontSize: "14px",
+                                marginLeft: "14px",
+                              }}
+                              title="Date of birth">
+                              📅
+                            </span>
+                          </div>
                         </td>
                       </tr>
 
@@ -2735,55 +2831,17 @@ function UserPortal({ initialSection }) {
                           <span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
-                          {isEditingPaymentDetails ?
-                            <select
-                              className="immi-prepay-select"
-                              value={paymentEditForm.visaSubclass}
-                              onChange={(e) => {
-                                const sub = e.target.value;
-                                const amt = calculateFeeForSubclass(sub);
-                                setPaymentEditForm({
-                                  ...paymentEditForm,
-                                  visaSubclass: sub,
-                                  amount: amt,
-                                });
+                          <div className="immi-prepay-text-val">
+                            <span>{paymentEditForm.visaSubclass || makePaymentData.visaSubclass}</span>
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                color: "#555",
+                                marginLeft: "28px",
                               }}>
-                              <option value="600 Visitor">600 Visitor</option>
-                              <option value="500 Student">500 Student</option>
-                              <option value="482 Temporary Skill Shortage">
-                                482 Temporary Skill Shortage
-                              </option>
-                              <option value="189 Skilled Independent">
-                                189 Skilled Independent
-                              </option>
-                              <option value="190 Skilled Nominated">
-                                190 Skilled Nominated
-                              </option>
-                              <option value="309 Partner (Provisional)">
-                                309 Partner (Provisional)
-                              </option>
-                              <option value="820 Partner (Temporary)">
-                                820 Partner (Temporary)
-                              </option>
-                              <option value="417 Working Holiday">
-                                417 Working Holiday
-                              </option>
-                              <option value="485 Temporary Graduate">
-                                485 Temporary Graduate
-                              </option>
-                            </select>
-                          : <div className="immi-prepay-text-val">
-                              <span>{makePaymentData.visaSubclass}</span>
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  color: "#555",
-                                  marginLeft: "28px",
-                                }}>
-                                ▼
-                              </span>
-                            </div>
-                          }
+                              ▼
+                            </span>
+                          </div>
                         </td>
                       </tr>
 
@@ -2792,73 +2850,48 @@ function UserPortal({ initialSection }) {
                           Amount (AUD)<span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
-                          {isEditingPaymentDetails ?
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                              }}>
-                              <input
-                                type="text"
-                                className="immi-prepay-input"
-                                style={{ width: "90px", minWidth: "90px" }}
-                                value={paymentEditForm.amount}
-                                onChange={(e) =>
-                                  setPaymentEditForm({
-                                    ...paymentEditForm,
-                                    amount: e.target.value,
-                                  })
-                                }
-                              />
-                              <button
-                                type="button"
-                                className="immi-prepay-calc-btn"
-                                onClick={handleCalculateAmount}>
-                                Calculate
-                              </button>
-                            </div>
-                          : <div className="immi-prepay-text-val">
-                              {makePaymentData.isCalculated &&
-                              makePaymentData.amount ?
-                                <span
-                                  style={{
-                                    fontWeight: "500",
-                                    marginRight: "6px",
-                                  }}>
-                                  {parseFloat(
-                                    makePaymentData.amount,
-                                  ).toFixed(2)}
-                                </span>
-                              : null}
-                              <button
-                                type="button"
-                                className="immi-prepay-calc-btn"
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "8px",
+                            }}>
+                            {/* Don't show amount without calculation; show amount only after calculation */}
+                            {(isEditingPaymentDetails ? paymentEditForm.isCalculated && paymentEditForm.amount : makePaymentData.isCalculated && makePaymentData.amount) ? (
+                              <span
                                 style={{
-                                  marginLeft:
-                                    (
-                                      makePaymentData.isCalculated &&
-                                      makePaymentData.amount
-                                    ) ?
-                                      "6px"
-                                    : "0px",
-                                }}
-                                onClick={handleCalculateAmount}>
-                                Calculate
-                              </button>
-                              {calcNote && (
-                                <span
-                                  style={{
-                                    fontSize: "11px",
-                                    color: "#00703c",
-                                    marginLeft: "8px",
-                                    fontWeight: "bold",
-                                  }}>
-                                  ✓ {calcNote}
-                                </span>
-                              )}
-                            </div>
-                          }
+                                  fontWeight: "600",
+                                  fontSize: "13px",
+                                  color: "#222",
+                                }}>
+                                {parseFloat(
+                                  isEditingPaymentDetails ? paymentEditForm.amount : makePaymentData.amount,
+                                ).toFixed(2)}
+                              </span>
+                            ) : null}
+
+                            <button
+                              type="button"
+                              className="immi-prepay-calc-btn"
+                              disabled={isCalculating}
+                              style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}
+                              onClick={handleCalculateAmount}>
+                              {isCalculating && <span className="immi-btn-spinner" />}
+                              {isCalculating ? "Calculating..." : "Calculate"}
+                            </button>
+
+                            {calcNote && (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "#00703c",
+                                  marginLeft: "6px",
+                                  fontWeight: "bold",
+                                }}>
+                                ✓ {calcNote}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
@@ -2910,26 +2943,18 @@ function UserPortal({ initialSection }) {
                       marginTop: "16px",
                       paddingTop: "10px",
                     }}>
-                    {isEditingPaymentDetails ?
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          type="button"
-                          className="immi-btn-classic"
-                          onClick={() => {
-                            setIsEditingPaymentDetails(false);
-                            setPaymentEditForm({ ...makePaymentData });
-                          }}>
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className="immi-btn-classic"
-                          style={{ fontWeight: "bold", color: "#004b87" }}
-                          onClick={handleSavePaymentDetails}>
-                          Save Changes
-                        </button>
-                      </div>
-                    : <button
+                    {isEditingPaymentDetails ? (
+                      <button
+                        type="button"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold", minWidth: "95px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                        disabled={isConfirmingPayment}
+                        onClick={handleSavePaymentDetails}>
+                        {isConfirmingPayment && <span className="immi-btn-spinner" />}
+                        {isConfirmingPayment ? "Confirming..." : "Confirm"}
+                      </button>
+                    ) : (
+                      <button
                         type="button"
                         className="immi-btn-classic"
                         onClick={() => {
@@ -2938,14 +2963,14 @@ function UserPortal({ initialSection }) {
                         }}>
                         Edit
                       </button>
-                    }
+                    )}
                   </div>
                 </div>
               }
             </div>
 
-            {/* 2. Payment Options Section Below (Stripe Online Gateway) */}
-            {!paymentCompletedReceipt && (
+            {/* 2. Payment Options Section Below (Razorpay Online Gateway) */}
+            {!paymentCompletedReceipt && !isEditingPaymentDetails && (
               <div className="immi-payment-options-card">
                 <div className="immi-options-title">Payment options</div>
 
@@ -2954,209 +2979,245 @@ function UserPortal({ initialSection }) {
                   disputed, even if you change your mind.
                 </div>
 
-                <div className="immi-options-radios-row">
+                <div className="immi-options-radios-row" style={{ display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "12px", color: "#222" }}>
                     Select a payment option:
                   </span>
-                  <label className="immi-options-radio-label" style={{ cursor: "default" }}>
+                  <label className="immi-options-radio-label" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
                     <input
                       type="radio"
                       name="paymentOption"
-                      value="stripe"
-                      checked={true}
-                      readOnly
+                      value="razorpay"
+                      checked={selectedPaymentMethod === "razorpay"}
+                      onChange={() => setSelectedPaymentMethod("razorpay")}
                     />
-                    <span style={{ fontWeight: "bold", color: "#004b87" }}>
-                      Credit / Debit Card &amp; Digital Wallets (Stripe)
+                    <span style={{ fontWeight: selectedPaymentMethod === "razorpay" ? "bold" : "normal", color: "#004b87" }}>
+                      Credit / Debit Card (Razorpay)
+                    </span>
+                  </label>
+
+                  <label className="immi-options-radio-label" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="paypal"
+                      checked={selectedPaymentMethod === "paypal"}
+                      onChange={() => setSelectedPaymentMethod("paypal")}
+                    />
+                    <span style={{ fontWeight: selectedPaymentMethod === "paypal" ? "bold" : "normal", color: "#004b87" }}>
+                      PayPal
                     </span>
                   </label>
                 </div>
 
                 <div>
                   <div className="immi-options-subhead">
-                    Payment by debit/credit card, Apple Pay or Google Pay
+                    {selectedPaymentMethod === "paypal"
+                      ? "Payment by PayPal"
+                      : "Payment by debit/credit card"}
                   </div>
 
-                  {/* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */}
-                  <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
-                    {/* Visa */}
-                    <span className="immi-card-badge" title="Visa">
-                      <svg
-                        width="44"
-                        height="20"
-                        viewBox="0 0 100 32"
-                        fill="none">
-                        <rect
-                          width="100"
-                          height="32"
-                          rx="3"
-                          fill="#ffffff"
-                        />
-                        <path
-                          d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
-                          fill="#1A1F71"
-                        />
-                        <path
-                          d="M62.6 8.3C61.4 7.8 59.5 7.4 57.3 7.4C52.1 7.4 48.4 10.2 48.4 14.1C48.4 17 51 18.6 53 19.6C55 20.6 55.7 21.2 55.7 22.1C55.7 23.5 54 24.1 52.5 24.1C50.4 24.1 49.3 23.8 47.7 23.1L47 22.8L46.2 26.6C47.4 27.2 49.7 27.6 52 27.6C57.6 27.6 61.2 24.8 61.2 20.8C61.2 17.5 59.1 16 56.6 14.8C54.8 13.9 53.7 13.3 53.7 12.3C53.7 11.2 55.1 10.7 56.4 10.7C57.9 10.7 59.2 11 60.4 11.5L60.9 11.7L62.6 8.3Z"
-                          fill="#1A1F71"
-                        />
-                        <path
-                          d="M70.8 24H75.1L71.4 8H67.4C66.5 8 65.7 8.5 65.4 9.3L58.8 24H63.4L64.3 21.5H69.9L70.8 24ZM65.5 18.1C66.1 16.5 67.4 12.9 67.4 12.9C67.4 12.9 67.8 11.9 68 11.3L69.2 18.1H65.5Z"
-                          fill="#1A1F71"
-                        />
-                        <path
-                          d="M34.7 8H30.4C29.4 8 28.7 8.5 28.3 9.4L20.2 24H24.8L25.7 21.5H31.3L32.2 24H36.8L34.7 8ZM22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
-                          fill="#F7B600"
-                        />
-                        <path
-                          d="M22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
-                          fill="#1A1F71"
-                        />
-                      </svg>
-                    </span>
+                  {/* Payment Badges Row */}
+                  {selectedPaymentMethod === "paypal" ? (
+                    <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
+                      <span className="immi-card-badge" title="PayPal" style={{ display: "inline-flex", alignItems: "center", padding: "3px 10px", backgroundColor: "#fff", border: "1px solid #cbd5e1", borderRadius: "3px" }}>
+                        <svg width="68" height="22" viewBox="0 0 100 32" fill="none">
+                          <path d="M12.5 4H24c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L14 30.5c-.1.5-.5.9-1 .9H6.5c-.7 0-1.1-.6-.9-1.2L11 4.9c.1-.5.7-.9 1.5-.9z" fill="#003087"/>
+                          <path d="M18.5 10.5H30c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L20 37c-.1.5-.5.9-1 .9h-6.5c-.7 0-1.1-.6-.9-1.2l5.4-25.3c.1-.5.7-.9 1.5-.9z" fill="#0079C1"/>
+                          <path d="M19 10.5c.3-1.6 1.7-2.8 3.3-2.8h11.2c3.5 0 6.3.8 8.1 2.5 1.5 1.4 2 3.3 1.5 5.5-1.2 5.1-4.8 8.2-10.1 8.8-1 .1-2.1.2-3.3.2H24.3c-.8 0-1.5.6-1.6 1.4l-1.8 11.2h-4.3c-.7 0-1.1-.6-.9-1.2L19 10.5z" fill="#00457C"/>
+                          <text x="44" y="23" fontFamily="Arial, sans-serif" fontSize="18" fontWeight="bold" fill="#003087">Pay</text>
+                          <text x="74" y="23" fontFamily="Arial, sans-serif" fontSize="18" fontWeight="bold" fill="#0079C1">Pal</text>
+                        </svg>
+                      </span>
+                    </div>
+                  ) : (
+                    /* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */
+                    <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
+                      {/* Visa */}
+                      <span className="immi-card-badge" title="Visa">
+                        <svg
+                          width="44"
+                          height="20"
+                          viewBox="0 0 100 32"
+                          fill="none">
+                          <rect
+                            width="100"
+                            height="32"
+                            rx="3"
+                            fill="#ffffff"
+                          />
+                          <path
+                            d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M62.6 8.3C61.4 7.8 59.5 7.4 57.3 7.4C52.1 7.4 48.4 10.2 48.4 14.1C48.4 17 51 18.6 53 19.6C55 20.6 55.7 21.2 55.7 22.1C55.7 23.5 54 24.1 52.5 24.1C50.4 24.1 49.3 23.8 47.7 23.1L47 22.8L46.2 26.6C47.4 27.2 49.7 27.6 52 27.6C57.6 27.6 61.2 24.8 61.2 20.8C61.2 17.5 59.1 16 56.6 14.8C54.8 13.9 53.7 13.3 53.7 12.3C53.7 11.2 55.1 10.7 56.4 10.7C57.9 10.7 59.2 11 60.4 11.5L60.9 11.7L62.6 8.3Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M70.8 24H75.1L71.4 8H67.4C66.5 8 65.7 8.5 65.4 9.3L58.8 24H63.4L64.3 21.5H69.9L70.8 24ZM65.5 18.1C66.1 16.5 67.4 12.9 67.4 12.9C67.4 12.9 67.8 11.9 68 11.3L69.2 18.1H65.5Z"
+                            fill="#1A1F71"
+                          />
+                          <path
+                            d="M34.7 8H30.4C29.4 8 28.7 8.5 28.3 9.4L20.2 24H24.8L25.7 21.5H31.3L32.2 24H36.8L34.7 8ZM22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                            fill="#F7B600"
+                          />
+                          <path
+                            d="M22.4 14.7L25 8H20.4L16.2 24H20.8L22.4 14.7Z"
+                            fill="#1A1F71"
+                          />
+                        </svg>
+                      </span>
 
-                    {/* Mastercard */}
-                    <span className="immi-card-badge" title="Mastercard">
-                      <svg width="44" height="20" viewBox="0 0 70 40">
-                        <rect
-                          width="70"
-                          height="40"
-                          rx="3"
-                          fill="#0A0A0A"
-                        />
-                        <circle cx="27" cy="20" r="14" fill="#EB001B" />
-                        <circle
-                          cx="43"
-                          cy="20"
-                          r="14"
-                          fill="#F79E1B"
-                          fillOpacity="0.9"
-                        />
-                      </svg>
-                    </span>
+                      {/* Mastercard */}
+                      <span className="immi-card-badge" title="Mastercard">
+                        <svg width="44" height="20" viewBox="0 0 70 40">
+                          <rect
+                            width="70"
+                            height="40"
+                            rx="3"
+                            fill="#0A0A0A"
+                          />
+                          <circle cx="27" cy="20" r="14" fill="#EB001B" />
+                          <circle
+                            cx="43"
+                            cy="20"
+                            r="14"
+                            fill="#F79E1B"
+                            fillOpacity="0.9"
+                          />
+                        </svg>
+                      </span>
 
-                    {/* American Express */}
-                    <span className="immi-card-badge" title="American Express">
-                      <svg width="44" height="20" viewBox="0 0 60 40">
-                        <rect
-                          width="60"
-                          height="40"
-                          rx="3"
-                          fill="#0077A6"
-                        />
-                        <text
-                          x="30"
-                          y="24"
-                          fill="#ffffff"
-                          fontSize="9"
-                          fontWeight="bold"
-                          fontFamily="Arial, sans-serif"
-                          textAnchor="middle">
-                          AMEX
-                        </text>
-                      </svg>
-                    </span>
+                      {/* American Express */}
+                      <span className="immi-card-badge" title="American Express">
+                        <svg width="44" height="20" viewBox="0 0 60 40">
+                          <rect
+                            width="60"
+                            height="40"
+                            rx="3"
+                            fill="#0077A6"
+                          />
+                          <text
+                            x="30"
+                            y="24"
+                            fill="#ffffff"
+                            fontSize="9"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif"
+                            textAnchor="middle">
+                            AMEX
+                          </text>
+                        </svg>
+                      </span>
 
-                    {/* Diners Club */}
-                    <span className="immi-card-badge" title="Diners Club">
-                      <svg width="44" height="20" viewBox="0 0 65 40">
-                        <rect
-                          width="65"
-                          height="40"
-                          rx="3"
-                          fill="#ffffff"
-                          stroke="#cbd5e1"
-                        />
-                        <circle cx="20" cy="20" r="11" fill="#004A97" />
-                        <path
-                          d="M20 12C24.4 12 28 15.6 28 20C28 24.4 24.4 28 20 28V12Z"
-                          fill="#ffffff"
-                        />
-                        <text
-                          x="35"
-                          y="23"
-                          fill="#004A97"
-                          fontSize="7.5"
-                          fontWeight="bold"
-                          fontFamily="Arial, sans-serif">
-                          Diners
-                        </text>
-                      </svg>
-                    </span>
+                      {/* Diners Club */}
+                      <span className="immi-card-badge" title="Diners Club">
+                        <svg width="44" height="20" viewBox="0 0 65 40">
+                          <rect
+                            width="65"
+                            height="40"
+                            rx="3"
+                            fill="#ffffff"
+                            stroke="#cbd5e1"
+                          />
+                          <circle cx="20" cy="20" r="11" fill="#004A97" />
+                          <path
+                            d="M20 12C24.4 12 28 15.6 28 20C28 24.4 24.4 28 20 28V12Z"
+                            fill="#ffffff"
+                          />
+                          <text
+                            x="35"
+                            y="23"
+                            fill="#004A97"
+                            fontSize="7.5"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif">
+                            Diners
+                          </text>
+                        </svg>
+                      </span>
 
-                    {/* JCB */}
-                    <span className="immi-card-badge" title="JCB">
-                      <svg width="44" height="20" viewBox="0 0 60 40">
-                        <rect
-                          width="60"
-                          height="40"
-                          rx="3"
-                          fill="#ffffff"
-                          stroke="#cbd5e1"
-                        />
-                        <rect
-                          x="10"
-                          y="8"
-                          width="12"
-                          height="24"
-                          rx="3"
-                          fill="#0079C1"
-                        />
-                        <rect
-                          x="24"
-                          y="8"
-                          width="12"
-                          height="24"
-                          rx="3"
-                          fill="#E60012"
-                        />
-                        <rect
-                          x="38"
-                          y="8"
-                          width="12"
-                          height="24"
-                          rx="3"
-                          fill="#00873C"
-                        />
-                        <text
-                          x="16"
-                          y="24"
-                          fill="#ffffff"
-                          fontSize="8"
-                          fontWeight="bold"
-                          fontFamily="Arial, sans-serif"
-                          textAnchor="middle">
-                          J
-                        </text>
-                        <text
-                          x="30"
-                          y="24"
-                          fill="#ffffff"
-                          fontSize="8"
-                          fontWeight="bold"
-                          fontFamily="Arial, sans-serif"
-                          textAnchor="middle">
-                          C
-                        </text>
-                        <text
-                          x="44"
-                          y="24"
-                          fill="#ffffff"
-                          fontSize="8"
-                          fontWeight="bold"
-                          fontFamily="Arial, sans-serif"
-                          textAnchor="middle">
-                          B
-                        </text>
-                      </svg>
-                    </span>
-                  </div>
+                      {/* JCB */}
+                      <span className="immi-card-badge" title="JCB">
+                        <svg width="44" height="20" viewBox="0 0 60 40">
+                          <rect
+                            width="60"
+                            height="40"
+                            rx="3"
+                            fill="#ffffff"
+                            stroke="#cbd5e1"
+                          />
+                          <rect
+                            x="10"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="3"
+                            fill="#0079C1"
+                          />
+                          <rect
+                            x="24"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="3"
+                            fill="#E60012"
+                          />
+                          <rect
+                            x="38"
+                            y="8"
+                            width="12"
+                            height="24"
+                            rx="3"
+                            fill="#00873C"
+                          />
+                          <text
+                            x="16"
+                            y="24"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif"
+                            textAnchor="middle">
+                            J
+                          </text>
+                          <text
+                            x="30"
+                            y="24"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif"
+                            textAnchor="middle">
+                            C
+                          </text>
+                          <text
+                            x="44"
+                            y="24"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            fontFamily="Arial, sans-serif"
+                            textAnchor="middle">
+                            B
+                          </text>
+                        </svg>
+                      </span>
+                    </div>
+                  )}
 
                   <div className="immi-prepay-notes" style={{ marginBottom: "12px" }}>
-                    <p>
-                      Payments are processed securely via the official <strong>Stripe Payment Gateway</strong>.
-                      Cardholder authentication (3D Secure) and digital wallet payments (Apple Pay / Google Pay) are supported.
-                    </p>
+                    {selectedPaymentMethod === "paypal" ? (
+                      <p>
+                        Payments via PayPal are processed securely. You will be redirected to complete your PayPal payment.
+                      </p>
+                    ) : (
+                      <p>
+                        Payments are processed securely via the official <strong>Razorpay Payment Gateway</strong>.
+                        Cardholder authentication (3D Secure / OTP) is supported.
+                      </p>
+                    )}
                   </div>
 
                   {/* Payment Details Table */}
@@ -3167,7 +3228,11 @@ function UserPortal({ initialSection }) {
                           <td className="label-cell" style={{ width: "240px" }}>Payment method</td>
                           <td className="value-cell">
                             <span style={{ fontWeight: "600", color: "#004b87", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              <span>💳 Stripe Hosted Checkout (Debit / Credit / Wallets)</span>
+                              {selectedPaymentMethod === "paypal" ? (
+                                <span>PayPal</span>
+                              ) : (
+                                <span>💳 Credit / Debit Card (Razorpay)</span>
+                              )}
                             </span>
                           </td>
                         </tr>
@@ -3231,9 +3296,7 @@ function UserPortal({ initialSection }) {
                                   parseFloat(
                                     makePaymentData.amount,
                                   ).toFixed(2)
-                                : makePaymentData.backendAmount ?
-                                  parseFloat(makePaymentData.backendAmount).toFixed(2)
-                                : calculateFeeForSubclass(makePaymentData.visaSubclass)}
+                                : "0.00"}
                               </span>
                             </div>
                           </td>
@@ -3253,7 +3316,15 @@ function UserPortal({ initialSection }) {
                       color: "#1e1b4b",
                       lineHeight: "1.5",
                     }}>
-                    When you click <strong>Pay</strong>, you will be redirected to the secure payment gateway to enter your card details and complete payment. Once approved, your official Department of Home Affairs receipt will be generated automatically.
+                    {selectedPaymentMethod === "paypal" ? (
+                      <span>
+                        When you click <strong>Pay</strong>, you will be redirected to PayPal to complete your payment.
+                      </span>
+                    ) : (
+                      <span>
+                        When you click <strong>Pay</strong>, the secure card payment checkout will open to process your payment. Once approved, your official Department of Home Affairs receipt will be generated automatically.
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -3280,10 +3351,19 @@ function UserPortal({ initialSection }) {
                   <button
                     type="button"
                     className="immi-btn-classic"
-                    style={{ fontWeight: "bold", minWidth: "75px" }}
-                    disabled={isStripeLoading}
-                    onClick={() => handleInitiateStripeCheckout(makePaymentData)}>
-                    {isStripeLoading ? "Processing..." : "Pay"}
+                    style={{ fontWeight: "bold", minWidth: "85px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                    disabled={isPaymentLoading}
+                    onClick={() => {
+                      if (selectedPaymentMethod === "paypal") {
+                        alert(
+                          "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction."
+                        );
+                        return;
+                      }
+                      handleInitiateRazorpayPayment(makePaymentData);
+                    }}>
+                    {isPaymentLoading && <span className="immi-btn-spinner" />}
+                    {isPaymentLoading ? "Processing..." : "Pay"}
                   </button>
                 </div>
               </div>
@@ -3598,11 +3678,23 @@ function UserPortal({ initialSection }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPayments.length === 0 ?
+                    {isPaymentsLoading ? (
+                      <tr className="loading-row">
+                        <td colSpan="10" style={{ padding: "40px 20px", textAlign: "center", backgroundColor: "#ffffff" }}>
+                          <div className="immi-loading-container" style={{ margin: "0 auto", padding: "10px" }}>
+                            <div className="immi-spinner-gov"></div>
+                            <div className="immi-loading-text">
+                              <strong>Loading payment records...</strong>
+                              <span>Please wait while your payments are retrieved from the Department server.</span>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredPayments.length === 0 ? (
                       <tr className="empty-row">
                         <td colSpan="10">No data available in table</td>
                       </tr>
-                    : filteredPayments.map((p, idx) => (
+                    ) : filteredPayments.map((p, idx) => (
                         <tr key={p.id || p.ref || idx}>
                           <td>{p.type || "Invoice Payment"}</td>
                           <td>
@@ -4037,9 +4129,13 @@ function UserPortal({ initialSection }) {
                 </div>
 
                 <button
+                  type="button"
                   className="immi-refresh-link"
+                  disabled={isLoading}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}
                   onClick={fetchUserApplications}>
                   <svg
+                    className={isLoading ? "immi-spin" : ""}
                     viewBox="0 0 24 24"
                     width="13"
                     height="13"
@@ -4048,7 +4144,7 @@ function UserPortal({ initialSection }) {
                     strokeWidth="2.5">
                     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
                   </svg>
-                  <span>Refresh</span>
+                  <span>{isLoading ? "Refreshing..." : "Refresh"}</span>
                 </button>
               </div>
             </div>
@@ -4056,7 +4152,13 @@ function UserPortal({ initialSection }) {
             {/* Applications Table / Empty State */}
             <div className="immi-applications-container">
               {isLoading ?
-                <div className="immi-loading">Loading applications...</div>
+                <div className="immi-loading-container" style={{ border: "1px solid #ccd4db", margin: "16px 0" }}>
+                  <div className="immi-spinner-gov"></div>
+                  <div className="immi-loading-text">
+                    <strong>Loading applications...</strong>
+                    <span>Please wait while your ImmiAccount application data is retrieved.</span>
+                  </div>
+                </div>
               : filteredVisas.length === 0 ?
                 <div className="immi-no-results">No results found</div>
               : <table className="immi-applications-table">
@@ -4380,7 +4482,9 @@ function UserPortal({ initialSection }) {
                 <button
                   type="submit"
                   className="immi-btn-primary-sm"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
                   disabled={importLoading}>
+                  {importLoading && <span className="immi-btn-spinner-white" />}
                   {importLoading ? "Searching..." : "Import Application"}
                 </button>
               </div>
