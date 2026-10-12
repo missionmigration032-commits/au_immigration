@@ -79,78 +79,14 @@ function ImmiAccountLogin() {
       {/* Main Content Area */}
       <div className="immi-login-content-wrapper">
         {/* Dark Navy "Login" Bar */}
-        <div className="immi-login-title-bar">
-          Login
-        </div>
-
-        {/* Information Box */}
-        <div className="immi-login-info-box">
-          <div className="immi-login-info-header">
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 16 16"
-              style={{ flexShrink: 0, marginRight: "4px" }}
-              aria-hidden="true"
-            >
-              <circle cx="8" cy="8" r="7.5" fill="#000000" />
-              <rect x="7" y="6.6" width="2" height="5" fill="#48b8e6" />
-              <circle cx="8" cy="4.2" r="1.1" fill="#48b8e6" />
-            </svg>
-            <span>Information</span>
-          </div>
-          <div className="immi-login-info-body">
-            <div className="immi-info-item">
-              <h4>Planned system maintenance</h4>
-              <p>
-                Our online systems will be unavailable{" "}
-                <strong>
-                  from 8:00 pm Friday 25 September 2026 to 12 noon Saturday 26 September 2026 (AEST)
-                </strong>{" "}
-                for scheduled maintenance.
-              </p>
-              <p>
-                For details, please visit the{" "}
-                <a
-                  href="#"
-                  className="immi-ref-link"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    alert("Systems maintenance details page");
-                  }}
-                >
-                  Systems maintenance news article
-                </a>{" "}
-                page.
-              </p>
-              <p>We apologise for any inconvenience and thank you for your patience.</p>
-            </div>
-
-            <div className="immi-info-item">
-              <h4>Temporary travel restrictions for Iranian Visitor visa holders</h4>
-              <p>
-                For more information see{" "}
-                <a
-                  href="#"
-                  className="immi-ref-link"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    alert("Temporary travel restrictions for Iranian passports notice");
-                  }}
-                >
-                  Temporary travel restrictions for Visitor visa holders with Iranian passports
-                </a>
-                .
-              </p>
-            </div>
-          </div>
-        </div>
+        <div className="immi-login-title-bar">Login</div>
 
         {/* Login to ImmiAccount Section */}
         <div className="immi-login-form-section">
           <h3 className="immi-section-heading">Login to ImmiAccount</h3>
           <p className="immi-mandatory-hint">
-            Fields marked <span className="immi-star">*</span> must be completed.
+            Fields marked <span className="immi-star">*</span> must be
+            completed.
           </p>
 
           <form onSubmit={handleLogin}>
@@ -171,8 +107,11 @@ function ImmiAccountLogin() {
                   type="button"
                   className="immi-qmark-btn"
                   title="Help on Username"
-                  onClick={() => handleHelp("Please enter your registered ImmiAccount username.")}
-                >
+                  onClick={() =>
+                    handleHelp(
+                      "Please enter your registered ImmiAccount username.",
+                    )
+                  }>
                   ?
                 </button>
               </div>
@@ -195,8 +134,9 @@ function ImmiAccountLogin() {
                   type="button"
                   className="immi-qmark-btn"
                   title="Help on Password"
-                  onClick={() => handleHelp("Please enter your ImmiAccount password.")}
-                >
+                  onClick={() =>
+                    handleHelp("Please enter your ImmiAccount password.")
+                  }>
                   ?
                 </button>
               </div>
@@ -207,14 +147,10 @@ function ImmiAccountLogin() {
               <button
                 type="button"
                 className="immi-gov-action-btn"
-                onClick={handleCancel}
-              >
+                onClick={handleCancel}>
                 Cancel
               </button>
-              <button
-                type="submit"
-                className="immi-gov-action-btn"
-              >
+              <button type="submit" className="immi-gov-action-btn">
                 Login
               </button>
             </div>
@@ -230,8 +166,7 @@ function ImmiAccountLogin() {
                 onClick={(e) => {
                   e.preventDefault();
                   alert("Recover username service");
-                }}
-              >
+                }}>
                 username
               </a>{" "}
               or{" "}
@@ -241,8 +176,7 @@ function ImmiAccountLogin() {
                 onClick={(e) => {
                   e.preventDefault();
                   alert("Reset password service");
-                }}
-              >
+                }}>
                 password
               </a>
             </p>
@@ -254,8 +188,7 @@ function ImmiAccountLogin() {
                 onClick={(e) => {
                   e.preventDefault();
                   alert("Multi-factor authentication reset service");
-                }}
-              >
+                }}>
                 multi-factor authentication app
               </a>
             </p>
@@ -266,22 +199,27 @@ function ImmiAccountLogin() {
         <div className="immi-create-section">
           <h3 className="immi-section-heading">Create an ImmiAccount</h3>
           <p className="immi-create-desc">
-            Create an ImmiAccount to access the Department of Home Affairs's online services.
+            Create an ImmiAccount to access the Department of Home Affairs's
+            online services.
           </p>
           <div className="immi-create-controls">
             <button
               type="button"
               className="immi-gov-action-btn"
-              onClick={() => alert("Redirecting to ImmiAccount registration...")}
-            >
+              onClick={() =>
+                alert("Redirecting to ImmiAccount registration...")
+              }>
               Create ImmiAccount
             </button>
             <button
               type="button"
               className="immi-qmark-btn"
               title="Help on Create ImmiAccount"
-              onClick={() => handleHelp("An ImmiAccount allows you to lodge online visa applications and access Home Affairs services.")}
-            >
+              onClick={() =>
+                handleHelp(
+                  "An ImmiAccount allows you to lodge online visa applications and access Home Affairs services.",
+                )
+              }>
               ?
             </button>
           </div>

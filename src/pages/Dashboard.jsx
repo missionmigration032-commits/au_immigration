@@ -21,12 +21,14 @@ import {
   getInitialPaymentData,
   getVisaGrantMergedData,
   getOfferLetterMergedData,
+  getInitialNominationFormData,
 } from "../components/dashboard/dashboardUtils";
 
 // Modals
 import EditUserModal from "../components/dashboard/modals/EditUserModal";
 import EditCompanyModal from "../components/dashboard/modals/EditCompanyModal";
 import EditOfferLetterModal from "../components/dashboard/modals/EditOfferLetterModal";
+import EditNominationModal from "../components/dashboard/modals/EditNominationModal";
 import OfferLetterPreviewModal from "../components/dashboard/modals/OfferLetterPreviewModal";
 import VisaPreviewModal from "../components/dashboard/modals/VisaPreviewModal";
 
@@ -38,6 +40,7 @@ import AccountsTab from "../components/dashboard/tabs/AccountsTab";
 import CompaniesTab from "../components/dashboard/tabs/CompaniesTab";
 import OfferLettersTab from "../components/dashboard/tabs/OfferLettersTab";
 import VisaGrantTab from "../components/dashboard/tabs/VisaGrantTab";
+import NominationsTab from "../components/dashboard/tabs/NominationsTab";
 
 function Dashboard() {
   const role = localStorage.getItem("role");
@@ -119,6 +122,17 @@ function Dashboard() {
   const [editingOfferLetter, setEditingOfferLetter] = useState(null);
   const [offerLetterAlert, setOfferLetterAlert] = useState(null);
   const [isOfferLetterSubmitting, setIsOfferLetterSubmitting] = useState(false);
+
+  // Nominations state
+  const [nominationsList, setNominationsList] = useState([]);
+  const [nominationFormData, setNominationFormData] = useState(
+    getInitialNominationFormData
+  );
+  const [nominationSearch, setNominationSearch] = useState("");
+  const [editingNomination, setEditingNomination] = useState(null);
+  const [nominationAlert, setNominationAlert] = useState(null);
+  const [isNominationSubmitting, setIsNominationSubmitting] = useState(false);
+  const [isUpdatingNomination, setIsUpdatingNomination] = useState(false);
 
   // PDF Preview & Download state
   const [previewOfferLetterData, setPreviewOfferLetterData] = useState(null);
@@ -277,6 +291,28 @@ function Dashboard() {
     }
   };
 
+  const fetchNominations = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/nominations?origin=au`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.nominations)) {
+          setNominationsList(data.nominations);
+        } else if (Array.isArray(data)) {
+          setNominationsList(data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch nominations:", error);
+    }
+  };
+
   useEffect(() => {
     if (role === "admin" || role === "employe") {
       fetchUsers();
@@ -285,6 +321,7 @@ function Dashboard() {
       if (role === "admin") {
         fetchCompanies();
         fetchOfferLetters();
+        fetchNominations();
       }
     }
   }, [role, token]);
@@ -1426,6 +1463,185 @@ function Dashboard() {
     }
   };
 
+  // Nomination handlers
+  const handleCreateNomination = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setIsNominationSubmitting(true);
+    setNominationAlert(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("origin", nominationFormData.origin || "au");
+
+      if (nominationFormData.userId) {
+        formData.append("userId", nominationFormData.userId);
+      }
+      if (nominationFormData.applicationId) {
+        formData.append("applicationId", nominationFormData.applicationId.trim());
+      }
+      if (nominationFormData.nominationTrn) {
+        formData.append("nominationTrn", nominationFormData.nominationTrn.trim());
+      }
+      if (nominationFormData.visaProgram) {
+        formData.append("visaProgram", nominationFormData.visaProgram.trim());
+      }
+      if (nominationFormData.fileNumber) {
+        formData.append("fileNumber", nominationFormData.fileNumber.trim());
+      }
+      if (nominationFormData.givenName) {
+        formData.append("givenName", nominationFormData.givenName.trim());
+      }
+      if (nominationFormData.familyName) {
+        formData.append("familyName", nominationFormData.familyName.trim());
+      }
+      if (nominationFormData.approvedDate) {
+        formData.append("approvedDate", nominationFormData.approvedDate.trim());
+      }
+
+      if (nominationFormData.file) {
+        formData.append("document", nominationFormData.file);
+        if (nominationFormData.documentName) {
+          formData.append("documentName", nominationFormData.documentName.trim());
+        }
+      }
+
+      const response = await fetch(`${API_URL}/api/nominations?origin=au`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const resData = await response.json();
+
+      if (response.ok) {
+        setNominationAlert({
+          type: "success",
+          message: "Nomination created and recorded successfully!",
+        });
+        setNominationFormData(getInitialNominationFormData());
+        fetchNominations();
+      } else {
+        setNominationAlert({
+          type: "danger",
+          message: resData.message || "Failed to create nomination",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating nomination:", error);
+      setNominationAlert({
+        type: "danger",
+        message: "Network error occurred while creating nomination",
+      });
+    } finally {
+      setIsNominationSubmitting(false);
+    }
+  };
+
+  const handleUpdateNomination = async (updatedNomination, newFile, newDocName) => {
+    setIsUpdatingNomination(true);
+    try {
+      let response;
+      if (newFile) {
+        const formData = new FormData();
+        formData.append("origin", updatedNomination.origin || "au");
+        formData.append("document", newFile);
+        if (newDocName) formData.append("documentName", newDocName.trim());
+
+        const uid =
+          typeof updatedNomination.userId === "object"
+            ? updatedNomination.userId?._id
+            : updatedNomination.userId;
+        if (uid) {
+          formData.append("userId", uid);
+        } else {
+          formData.append("userId", "");
+        }
+
+        if (updatedNomination.applicationId)
+          formData.append("applicationId", updatedNomination.applicationId.trim());
+        if (updatedNomination.nominationTrn)
+          formData.append("nominationTrn", updatedNomination.nominationTrn.trim());
+        if (updatedNomination.visaProgram)
+          formData.append("visaProgram", updatedNomination.visaProgram.trim());
+        if (updatedNomination.fileNumber)
+          formData.append("fileNumber", updatedNomination.fileNumber.trim());
+        if (updatedNomination.givenName)
+          formData.append("givenName", updatedNomination.givenName.trim());
+        if (updatedNomination.familyName)
+          formData.append("familyName", updatedNomination.familyName.trim());
+        if (updatedNomination.approvedDate)
+          formData.append("approvedDate", updatedNomination.approvedDate.trim());
+
+        response = await fetch(
+          `${API_URL}/api/nominations/${updatedNomination._id}?origin=au`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+      } else {
+        const payload = {
+          ...updatedNomination,
+          userId:
+            typeof updatedNomination.userId === "object"
+              ? updatedNomination.userId?._id
+              : updatedNomination.userId || null,
+        };
+        response = await fetch(
+          `${API_URL}/api/nominations/${updatedNomination._id}?origin=au`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+      }
+
+      const resData = await response.json();
+      if (response.ok) {
+        alert("Nomination updated successfully!");
+        setEditingNomination(null);
+        fetchNominations();
+      } else {
+        alert(resData.message || "Failed to update nomination");
+      }
+    } catch (error) {
+      console.error("Error updating nomination:", error);
+      alert("Network error updating nomination");
+    } finally {
+      setIsUpdatingNomination(false);
+    }
+  };
+
+  const handleDeleteNomination = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this nomination record?"))
+      return;
+    try {
+      const response = await fetch(`${API_URL}/api/nominations/${id}?origin=au`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        alert("Nomination deleted successfully");
+        fetchNominations();
+      } else {
+        const data = await response.json();
+        alert(data.message || "Failed to delete nomination");
+      }
+    } catch (error) {
+      console.error("Error deleting nomination:", error);
+      alert("Network error deleting nomination");
+    }
+  };
+
   if (role !== "admin" && role !== "employe") {
     return (
       <div style={{ padding: "2rem" }}>
@@ -1480,6 +1696,11 @@ function Dashboard() {
                 className={`menu-item ${activeTab === "visa-grant" ? "active" : ""}`}
                 onClick={() => setActiveTab("visa-grant")}>
                 <span>🪪</span> Visa Grant Letter
+              </div>
+              <div
+                className={`menu-item ${activeTab === "nominations" ? "active" : ""}`}
+                onClick={() => setActiveTab("nominations")}>
+                <span>📑</span> Nominations
               </div>
             </>
           )}
@@ -1874,6 +2095,24 @@ function Dashboard() {
             handleDeleteSavedVisaGrant={handleDeleteSavedVisaGrant}
           />
         )}
+
+        {activeTab === "nominations" && role === "admin" && (
+          <NominationsTab
+            nominationsList={nominationsList}
+            fetchNominations={fetchNominations}
+            nominationFormData={nominationFormData}
+            setNominationFormData={setNominationFormData}
+            nominationSearch={nominationSearch}
+            setNominationSearch={setNominationSearch}
+            nominationAlert={nominationAlert}
+            setNominationAlert={setNominationAlert}
+            isNominationSubmitting={isNominationSubmitting}
+            handleCreateNomination={handleCreateNomination}
+            setEditingNomination={setEditingNomination}
+            handleDeleteNomination={handleDeleteNomination}
+            usersList={usersList}
+          />
+        )}
       </main>
 
       {/* Modals */}
@@ -1894,6 +2133,13 @@ function Dashboard() {
         handleUpdateOfferLetter={handleUpdateOfferLetter}
         handleOpenOfferLetterPreview={handleOpenOfferLetterPreview}
         companiesList={companiesList}
+        usersList={usersList}
+      />
+      <EditNominationModal
+        editingNomination={editingNomination}
+        setEditingNomination={setEditingNomination}
+        handleUpdateNomination={handleUpdateNomination}
+        isUpdatingNomination={isUpdatingNomination}
         usersList={usersList}
       />
       <OfferLetterPreviewModal

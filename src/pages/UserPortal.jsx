@@ -21,6 +21,9 @@ function UserPortal({ initialSection }) {
 
   const [visas, setVisas] = useState([]);
   const [importedVisas, setImportedVisas] = useState([]);
+  const [nominations, setNominations] = useState([]);
+  const [selectedNomination, setSelectedNomination] = useState(null);
+  const [appCategoryFilter, setAppCategoryFilter] = useState("all"); // 'all', 'visas', 'nominations'
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
@@ -314,6 +317,97 @@ function UserPortal({ initialSection }) {
   const [requestServiceType, setRequestServiceType] = useState("Organisation access");
   const [accountMessage, setAccountMessage] = useState("");
 
+  // Helper to title-case words (e.g. "aman" -> "Aman", "john doe" -> "John Doe")
+  const toTitleCase = (str) => {
+    if (!str || typeof str !== "string") return "";
+    return str
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+  };
+
+  // Helper to format primary applicant name in "givenName familyName" format (e.g. "Aman Deep")
+  const formatPrimaryApplicantName = (item) => {
+    if (!item) return "—";
+
+    let family =
+      item.familyName ||
+      item.family_name ||
+      item.lastName ||
+      (typeof item.userId === "object" ? item.userId?.familyName : "") ||
+      "";
+
+    let given =
+      item.givenNames ||
+      item.givenName ||
+      item.given_name ||
+      item.firstName ||
+      (typeof item.userId === "object" ? item.userId?.givenName : "") ||
+      "";
+
+    // If both given and family names exist: "givenName familyName"
+    if (given && given.trim() && family && family.trim()) {
+      return `${toTitleCase(given)} ${toTitleCase(family)}`;
+    }
+
+    // If only given name exists
+    if (given && given.trim()) {
+      return toTitleCase(given);
+    }
+
+    // If only family name exists
+    if (family && family.trim()) {
+      return toTitleCase(family);
+    }
+
+    // Check full name or applicantName fields
+    const full =
+      item.fullName ||
+      item.applicantName ||
+      item.primaryApplicant ||
+      item.name ||
+      (typeof item.userId === "object" && item.userId?.name ? item.userId.name : "");
+
+    if (full && typeof full === "string" && full.trim()) {
+      const trimmed = full.trim();
+      if (trimmed.includes(",")) {
+        // e.g. "DEEP, Aman" -> "Aman Deep"
+        const [famPart, ...givParts] = trimmed.split(",");
+        const givStr = givParts.join(",").trim();
+        if (givStr) {
+          return `${toTitleCase(givStr)} ${toTitleCase(famPart)}`;
+        }
+        return toTitleCase(famPart);
+      }
+      return toTitleCase(trimmed);
+    }
+
+    // Check linked user username or account
+    if (typeof item.userId === "object" && item.userId?.username) {
+      const uname = item.userId.username.trim();
+      if (uname && !uname.includes("@")) {
+        return toTitleCase(uname);
+      }
+    }
+
+    // Fallback: Check if user profile has given and/or family name
+    const storedGiven = userGivenNames || localStorage.getItem("givenNames") || "";
+    const storedFamily = userFamilyName || localStorage.getItem("familyName") || "";
+    if (storedGiven && storedFamily) {
+      return `${toTitleCase(storedGiven)} ${toTitleCase(storedFamily)}`;
+    }
+    if (storedGiven) return toTitleCase(storedGiven);
+    if (storedFamily) return toTitleCase(storedFamily);
+
+    const uName = storedUsername || localStorage.getItem("username") || "";
+    if (uName && uName !== "User" && !uName.includes("@")) {
+      return toTitleCase(uName);
+    }
+
+    return "—";
+  };
+
   const handleCreateGroup = (e) => {
     e.preventDefault();
     if (!newGroupName.trim()) return;
@@ -478,7 +572,7 @@ function UserPortal({ initialSection }) {
     navigate("/lusc/login");
   };
 
-  // Fetch Visas for the logged in user
+  // Fetch Visas & Nominations for the logged in user
   const fetchUserApplications = async () => {
     if (!token || !userId) {
       setIsLoading(false);
@@ -486,6 +580,7 @@ function UserPortal({ initialSection }) {
     }
     setIsLoading(true);
     try {
+      // 1. Fetch Visas
       const response = await fetch(
         `${API_URL}/api/visas/user/${userId}?origin=au`,
         {
@@ -509,6 +604,28 @@ function UserPortal({ initialSection }) {
         }
       } else {
         setVisas([]);
+      }
+
+      // 2. Fetch Nominations for user
+      try {
+        const nomResponse = await fetch(
+          `${API_URL}/api/nominations/user/${userId}?origin=au`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (nomResponse.ok) {
+          const nomData = await nomResponse.json();
+          if (nomData && Array.isArray(nomData.nominations)) {
+            setNominations(nomData.nominations);
+          } else if (Array.isArray(nomData)) {
+            setNominations(nomData);
+          }
+        }
+      } catch (nomErr) {
+        console.error("Error fetching user nominations:", nomErr);
       }
     } catch (error) {
       console.error("Error fetching user applications:", error);
@@ -543,20 +660,32 @@ function UserPortal({ initialSection }) {
     return combined;
   }, [visas, importedVisas]);
 
-  // Sync manage-account details with primary visa application if not manually overridden
+  // Sync manage-account details with primary visa or nomination application if not manually overridden
   useEffect(() => {
-    if (allVisas && allVisas.length > 0) {
-      const primaryVisa = allVisas[0];
-      if (!localStorage.getItem("givenNames") && primaryVisa.givenNames) {
-        setUserGivenNames(primaryVisa.givenNames);
-        setEditGivenNames(primaryVisa.givenNames);
+    const primaryApp =
+      allVisas && allVisas.length > 0
+        ? allVisas[0]
+        : nominations && nominations.length > 0
+        ? nominations[0]
+        : null;
+
+    if (primaryApp) {
+      const gName = primaryApp.givenNames || primaryApp.givenName;
+      const fName = primaryApp.familyName;
+      if (!localStorage.getItem("givenNames") && gName) {
+        setUserGivenNames(gName);
+        setEditGivenNames(gName);
       }
-      if (!localStorage.getItem("familyName") && primaryVisa.familyName) {
-        setUserFamilyName(primaryVisa.familyName.toUpperCase());
-        setEditFamilyName(primaryVisa.familyName.toUpperCase());
+      if (!localStorage.getItem("familyName") && fName) {
+        setUserFamilyName(fName.toUpperCase());
+        setEditFamilyName(fName.toUpperCase());
       }
       if (!localStorage.getItem("userEmail")) {
-        const vEmail = primaryVisa.email || primaryVisa.applicantEmail || primaryVisa.contactEmail;
+        const vEmail =
+          primaryApp.email ||
+          primaryApp.applicantEmail ||
+          primaryApp.contactEmail ||
+          (typeof primaryApp.userId === "object" ? primaryApp.userId?.email : null);
         if (vEmail) {
           setUserEmail(vEmail);
           setEditEmail(vEmail);
@@ -564,7 +693,7 @@ function UserPortal({ initialSection }) {
         }
       }
     }
-  }, [allVisas]);
+  }, [allVisas, nominations]);
 
   // Filter and Sort Visas
   const filteredVisas = useMemo(() => {
@@ -628,7 +757,9 @@ function UserPortal({ initialSection }) {
         );
       }
       if (sortBy === "applicant") {
-        return (a.familyName || "").localeCompare(b.familyName || "");
+        return formatPrimaryApplicantName(a).localeCompare(
+          formatPrimaryApplicantName(b),
+        );
       }
       if (sortBy === "status") {
         return (a.visaStatus || "").localeCompare(b.visaStatus || "");
@@ -638,6 +769,61 @@ function UserPortal({ initialSection }) {
 
     return list;
   }, [allVisas, searchQuery, advFilters, sortBy]);
+
+  // Filter and Sort Nominations
+  const filteredNominations = useMemo(() => {
+    let list = [...nominations];
+
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (n) =>
+          (n.visaProgram && n.visaProgram.toLowerCase().includes(q)) ||
+          (n.nominationTrn && n.nominationTrn.toLowerCase().includes(q)) ||
+          (n.applicationId && n.applicationId.toLowerCase().includes(q)) ||
+          (n.fileNumber && n.fileNumber.toLowerCase().includes(q)) ||
+          (n.familyName && n.familyName.toLowerCase().includes(q)) ||
+          (n.givenName && n.givenName.toLowerCase().includes(q)),
+      );
+    }
+
+    // Advanced search filters
+    if (advFilters.trn.trim()) {
+      const trn = advFilters.trn.toLowerCase().trim();
+      list = list.filter(
+        (n) =>
+          (n.nominationTrn && n.nominationTrn.toLowerCase().includes(trn)) ||
+          (n.fileNumber && n.fileNumber.toLowerCase().includes(trn)) ||
+          (n.applicationId && n.applicationId.toLowerCase().includes(trn)),
+      );
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      if (sortBy === "lastUpdated") {
+        const dateA = new Date(a.updatedAt || a.createdAt || a.approvedDate || 0);
+        const dateB = new Date(b.updatedAt || b.createdAt || b.approvedDate || 0);
+        return dateB - dateA;
+      }
+      if (sortBy === "application") {
+        return (a.visaProgram || "").localeCompare(b.visaProgram || "");
+      }
+      if (sortBy === "reference") {
+        return (a.nominationTrn || a.fileNumber || "").localeCompare(
+          b.nominationTrn || b.fileNumber || "",
+        );
+      }
+      if (sortBy === "applicant") {
+        return formatPrimaryApplicantName(a).localeCompare(
+          formatPrimaryApplicantName(b),
+        );
+      }
+      return 0;
+    });
+
+    return list;
+  }, [nominations, searchQuery, advFilters, sortBy]);
 
   // Import Application Handler (by Grant Number or TRN)
   const handleImportApplication = async (e) => {
@@ -4100,8 +4286,61 @@ function UserPortal({ initialSection }) {
             )}
 
             {/* Section title */}
-            <div className="immi-list-heading-row">
-              <h2 className="immi-list-title">List of applications</h2>
+            <div
+              className="immi-list-heading-row"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "10px",
+              }}>
+              <h2 className="immi-list-title" style={{ margin: 0 }}>
+                List of applications
+              </h2>
+
+              {/* Category Filter Pills */}
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className={`immi-btn-sm ${appCategoryFilter === "all" ? "immi-btn-primary-sm" : ""}`}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: appCategoryFilter === "all" ? "600" : "normal",
+                  }}
+                  onClick={() => setAppCategoryFilter("all")}>
+                  All ({filteredVisas.length + filteredNominations.length})
+                </button>
+                <button
+                  type="button"
+                  className={`immi-btn-sm ${appCategoryFilter === "visas" ? "immi-btn-primary-sm" : ""}`}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: appCategoryFilter === "visas" ? "600" : "normal",
+                  }}
+                  onClick={() => setAppCategoryFilter("visas")}>
+                  Visas ({filteredVisas.length})
+                </button>
+                <button
+                  type="button"
+                  className={`immi-btn-sm ${appCategoryFilter === "nominations" ? "immi-btn-primary-sm" : ""}`}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: appCategoryFilter === "nominations" ? "600" : "normal",
+                  }}
+                  onClick={() => setAppCategoryFilter("nominations")}>
+                  Nominations ({filteredNominations.length})
+                </button>
+              </div>
             </div>
 
             {/* Controls row */}
@@ -4159,7 +4398,9 @@ function UserPortal({ initialSection }) {
                     <span>Please wait while your ImmiAccount application data is retrieved.</span>
                   </div>
                 </div>
-              : filteredVisas.length === 0 ?
+              : (appCategoryFilter === "all" && filteredVisas.length === 0 && filteredNominations.length === 0) ||
+                (appCategoryFilter === "visas" && filteredVisas.length === 0) ||
+                (appCategoryFilter === "nominations" && filteredNominations.length === 0) ?
                 <div className="immi-no-results">No results found</div>
               : <table className="immi-applications-table">
                   <thead>
@@ -4173,46 +4414,110 @@ function UserPortal({ initialSection }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredVisas.map((visa) => (
-                      <tr
-                        key={visa._id || visa.trn || Math.random()}
-                        className="immi-app-row">
-                        <td className="immi-cell-app">
-                          <strong>{visa.visaType || "Visa"}</strong> (
-                          {visa.visaClassSubclass || "Visitor"})
-                        </td>
-                        <td className="immi-cell-trn">
-                          {visa.trn || visa.visaGrantNumber || "—"}
-                        </td>
-                        <td className="immi-cell-name">
-                          {visa.familyName ?
-                            `${visa.familyName.toUpperCase()}, ${visa.givenNames}`
-                          : "—"}
-                        </td>
-                        <td className="immi-cell-status">
-                          <span
-                            className={`immi-status-badge status-${(visa.visaStatus || "received").toLowerCase().replace(/\s+/g, "-")}`}>
-                            {visa.visaStatus || "Received"}
-                          </span>
-                        </td>
-                        <td className="immi-cell-date">
-                          {formatDate(
-                            visa.updatedAt ||
-                              visa.createdAt ||
-                              visa.visaGrantDate,
-                          )}
-                        </td>
-                        <td
-                          className="immi-cell-actions"
-                          style={{ textAlign: "center" }}>
-                          <button
-                            className="immi-view-details-btn"
-                            onClick={() => setSelectedVisa(visa)}>
-                            View details
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {/* Render Visas */}
+                    {(appCategoryFilter === "all" || appCategoryFilter === "visas") &&
+                      filteredVisas.map((visa) => (
+                        <tr
+                          key={visa._id || visa.trn || Math.random()}
+                          className="immi-app-row">
+                          <td className="immi-cell-app">
+                            <strong>{visa.visaType || "Visa"}</strong> (
+                            {visa.visaClassSubclass || "Visitor"})
+                          </td>
+                          <td className="immi-cell-trn">
+                            {visa.trn || visa.visaGrantNumber || "—"}
+                          </td>
+                          <td className="immi-cell-name">
+                            {formatPrimaryApplicantName(visa)}
+                          </td>
+                          <td className="immi-cell-status">
+                            <span
+                              className={`immi-status-badge status-${(visa.visaStatus || "received").toLowerCase().replace(/\s+/g, "-")}`}>
+                              {visa.visaStatus || "Received"}
+                            </span>
+                          </td>
+                          <td className="immi-cell-date">
+                            {formatDate(
+                              visa.updatedAt ||
+                                visa.createdAt ||
+                                visa.visaGrantDate,
+                            )}
+                          </td>
+                          <td
+                            className="immi-cell-actions"
+                            style={{ textAlign: "center" }}>
+                            <button
+                              className="immi-view-details-btn"
+                              onClick={() => setSelectedVisa(visa)}>
+                              View details
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                    {/* Render Nominations */}
+                    {(appCategoryFilter === "all" || appCategoryFilter === "nominations") &&
+                      filteredNominations.map((nom) => (
+                        <tr
+                          key={nom._id || nom.nominationTrn || Math.random()}
+                          className="immi-app-row"
+                          style={{ backgroundColor: "#fafcff" }}>
+                          <td className="immi-cell-app">
+                            <span
+                              style={{
+                                display: "inline-block",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                color: "#0369a1",
+                                backgroundColor: "#e0f2fe",
+                                padding: "1px 6px",
+                                borderRadius: "3px",
+                                marginBottom: "3px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                              }}>
+                              Nomination
+                            </span>
+                            <div>
+                              <strong>{nom.visaProgram || "Nomination Application"}</strong>
+                            </div>
+                          </td>
+                          <td className="immi-cell-trn">
+                            <strong>{nom.nominationTrn || "—"}</strong>
+                            {nom.fileNumber && (
+                              <div style={{ fontSize: "11px", color: "#64748b" }}>
+                                File: {nom.fileNumber}
+                              </div>
+                            )}
+                            {nom.applicationId && (
+                              <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                                ID: {nom.applicationId}
+                              </div>
+                            )}
+                          </td>
+                          <td className="immi-cell-name">
+                            {formatPrimaryApplicantName(nom)}
+                          </td>
+                          <td className="immi-cell-status">
+                            <span className="immi-status-badge status-approved">
+                              Approved
+                            </span>
+                          </td>
+                          <td className="immi-cell-date">
+                            {nom.approvedDate ||
+                              formatDate(nom.updatedAt || nom.createdAt)}
+                          </td>
+                          <td
+                            className="immi-cell-actions"
+                            style={{ textAlign: "center" }}>
+                            <button
+                              className="immi-view-details-btn"
+                              onClick={() => setSelectedNomination(nom)}>
+                              View details
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               }
@@ -4300,9 +4605,7 @@ function UserPortal({ initialSection }) {
                   <tr>
                     <th>Primary Applicant</th>
                     <td>
-                      {selectedVisa.familyName ?
-                        `${selectedVisa.familyName.toUpperCase()}, ${selectedVisa.givenNames}`
-                      : "—"}
+                      {formatPrimaryApplicantName(selectedVisa)}
                     </td>
                   </tr>
                   <tr>
@@ -4397,6 +4700,171 @@ function UserPortal({ initialSection }) {
               <button
                 className="immi-btn-cancel"
                 onClick={() => setSelectedVisa(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nomination Application Details Modal */}
+      {selectedNomination && (
+        <div
+          className="immi-modal-backdrop"
+          onClick={() => setSelectedNomination(null)}>
+          <div
+            className="immi-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "680px" }}>
+            <div className="immi-modal-header">
+              <h3>Nomination Details &amp; Summary</h3>
+              <button
+                className="immi-modal-close-btn"
+                type="button"
+                onClick={() => setSelectedNomination(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="immi-modal-body">
+              <table className="immi-details-table">
+                <tbody>
+                  <tr>
+                    <th>Application Type</th>
+                    <td>
+                      <span
+                        style={{
+                          backgroundColor: "#e0f2fe",
+                          color: "#0369a1",
+                          fontWeight: "700",
+                          padding: "2px 8px",
+                          borderRadius: "3px",
+                          fontSize: "11px",
+                          letterSpacing: "0.5px",
+                        }}>
+                        NOMINATION APPLICATION
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Visa Program</th>
+                    <td>
+                      <strong>{selectedNomination.visaProgram || "—"}</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Nomination Reference (TRN)</th>
+                    <td>
+                      <strong style={{ color: "#004b87", letterSpacing: "0.5px" }}>
+                        {selectedNomination.nominationTrn || "—"}
+                      </strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Application ID</th>
+                    <td>{selectedNomination.applicationId || "—"}</td>
+                  </tr>
+                  <tr>
+                    <th>File Number</th>
+                    <td>
+                      <code
+                        style={{
+                          backgroundColor: "#f1f5f9",
+                          padding: "2px 6px",
+                          borderRadius: "3px",
+                          fontSize: "11px",
+                        }}>
+                        {selectedNomination.fileNumber || "—"}
+                      </code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Primary Nominated Applicant</th>
+                    <td>
+                      {formatPrimaryApplicantName(selectedNomination)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Status</th>
+                    <td>
+                      <span className="immi-status-badge status-approved">
+                        Approved
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Approval Date</th>
+                    <td>
+                      {selectedNomination.approvedDate ||
+                        formatDate(
+                          selectedNomination.updatedAt ||
+                            selectedNomination.createdAt,
+                        )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Attached Documents / Approval Notice */}
+              <div style={{ marginTop: "20px" }}>
+                <h4
+                  style={{
+                    margin: "0 0 10px 0",
+                    color: "#002b49",
+                    fontSize: "13px",
+                    borderBottom: "1px solid #e5e7eb",
+                    paddingBottom: "6px",
+                  }}>
+                  Attached Documents &amp; Notices
+                </h4>
+                {selectedNomination.document &&
+                Array.isArray(selectedNomination.document) &&
+                selectedNomination.document.length > 0 ? (
+                  <ul className="immi-docs-list">
+                    {selectedNomination.document.map((doc, idx) => (
+                      <li key={idx} className="immi-doc-item">
+                        <span>
+                          📄 {doc.name || "Nomination Approval Notice"}
+                        </span>
+                        {doc.url ? (
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="immi-doc-download-btn">
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{ verticalAlign: "middle" }}>
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                              <polyline points="7 10 12 15 17 10"></polyline>
+                              <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>View / Download PDF</span>
+                          </a>
+                        ) : (
+                          <span style={{ color: "#888", fontSize: "11px" }}>
+                            Processed
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
+                    No correspondence files attached to this nomination application yet.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="immi-modal-footer">
+              <button
+                type="button"
+                className="immi-btn-cancel"
+                onClick={() => setSelectedNomination(null)}>
                 Close
               </button>
             </div>

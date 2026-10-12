@@ -348,3 +348,28 @@ export const getOfferLetterMergedData = (ol) => {
     validTill: details.validTill || ol.validTill || getFormattedExpiryDate(6),
   };
 };
+
+export const COMMON_VISA_PROGRAMS = [
+  "Employer Nomination",
+  "Temporary Skill Shortage visa (subclass 482)",
+  "Skilled Employer Sponsored Regional (subclass 494)",
+  "Skilled Nominated visa (subclass 190)",
+  "Skilled Work Regional (subclass 491)",
+  "Training visa (subclass 407)",
+  "Temporary Activity visa (subclass 408)",
+  "Global Talent visa (subclass 858)",
+];
+
+export const getInitialNominationFormData = () => ({
+  userId: "",
+  applicationId: generateNumericString(9),
+  nominationTrn: `NOM${generate8CharRef().slice(0, 7)}`,
+  visaProgram: "Employer Nomination",
+  fileNumber: `BCC2026/${generateNumericString(7)}`,
+  givenName: "",
+  familyName: "",
+  approvedDate: getFormattedTodayDate(),
+  origin: "au",
+  documentName: "Nomination Approval Notice",
+});
+
