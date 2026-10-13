@@ -22,6 +22,7 @@ import {
   getVisaGrantMergedData,
   getOfferLetterMergedData,
   getInitialNominationFormData,
+  getInitialSponsorshipFormData,
 } from "../components/dashboard/dashboardUtils";
 
 // Modals
@@ -29,6 +30,7 @@ import EditUserModal from "../components/dashboard/modals/EditUserModal";
 import EditCompanyModal from "../components/dashboard/modals/EditCompanyModal";
 import EditOfferLetterModal from "../components/dashboard/modals/EditOfferLetterModal";
 import EditNominationModal from "../components/dashboard/modals/EditNominationModal";
+import EditSponsorshipModal from "../components/dashboard/modals/EditSponsorshipModal";
 import OfferLetterPreviewModal from "../components/dashboard/modals/OfferLetterPreviewModal";
 import VisaPreviewModal from "../components/dashboard/modals/VisaPreviewModal";
 
@@ -41,6 +43,7 @@ import CompaniesTab from "../components/dashboard/tabs/CompaniesTab";
 import OfferLettersTab from "../components/dashboard/tabs/OfferLettersTab";
 import VisaGrantTab from "../components/dashboard/tabs/VisaGrantTab";
 import NominationsTab from "../components/dashboard/tabs/NominationsTab";
+import SponsorshipsTab from "../components/dashboard/tabs/SponsorshipsTab";
 
 function Dashboard() {
   const role = localStorage.getItem("role");
@@ -133,6 +136,17 @@ function Dashboard() {
   const [nominationAlert, setNominationAlert] = useState(null);
   const [isNominationSubmitting, setIsNominationSubmitting] = useState(false);
   const [isUpdatingNomination, setIsUpdatingNomination] = useState(false);
+
+  // Sponsorships state
+  const [sponsorshipsList, setSponsorshipsList] = useState([]);
+  const [sponsorshipFormData, setSponsorshipFormData] = useState(
+    getInitialSponsorshipFormData
+  );
+  const [sponsorshipSearch, setSponsorshipSearch] = useState("");
+  const [editingSponsorship, setEditingSponsorship] = useState(null);
+  const [sponsorshipAlert, setSponsorshipAlert] = useState(null);
+  const [isSponsorshipSubmitting, setIsSponsorshipSubmitting] = useState(false);
+  const [isUpdatingSponsorship, setIsUpdatingSponsorship] = useState(false);
 
   // PDF Preview & Download state
   const [previewOfferLetterData, setPreviewOfferLetterData] = useState(null);
@@ -313,6 +327,26 @@ function Dashboard() {
     }
   };
 
+  const fetchSponsorships = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/sponsorships?origin=au`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.sponsorships)) {
+          setSponsorshipsList(data.sponsorships);
+        } else if (Array.isArray(data)) {
+          setSponsorshipsList(data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch sponsorships:", error);
+    }
+  };
+
   useEffect(() => {
     if (role === "admin" || role === "employe") {
       fetchUsers();
@@ -322,6 +356,7 @@ function Dashboard() {
         fetchCompanies();
         fetchOfferLetters();
         fetchNominations();
+        fetchSponsorships();
       }
     }
   }, [role, token]);
@@ -1642,6 +1677,185 @@ function Dashboard() {
     }
   };
 
+  // Sponsorship handlers
+  const handleCreateSponsorship = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setIsSponsorshipSubmitting(true);
+    setSponsorshipAlert(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("origin", sponsorshipFormData.origin || "au");
+
+      if (sponsorshipFormData.userId) {
+        formData.append("userId", sponsorshipFormData.userId);
+      }
+      if (sponsorshipFormData.applicationId) {
+        formData.append("applicationId", sponsorshipFormData.applicationId.trim());
+      }
+      if (sponsorshipFormData.sponsorshipTrn) {
+        formData.append("sponsorshipTrn", sponsorshipFormData.sponsorshipTrn.trim());
+      }
+      if (sponsorshipFormData.visaProgram) {
+        formData.append("visaProgram", sponsorshipFormData.visaProgram.trim());
+      }
+      if (sponsorshipFormData.fileNumber) {
+        formData.append("fileNumber", sponsorshipFormData.fileNumber.trim());
+      }
+      if (sponsorshipFormData.givenName) {
+        formData.append("givenName", sponsorshipFormData.givenName.trim());
+      }
+      if (sponsorshipFormData.familyName) {
+        formData.append("familyName", sponsorshipFormData.familyName.trim());
+      }
+      if (sponsorshipFormData.approvedDate) {
+        formData.append("approvedDate", sponsorshipFormData.approvedDate.trim());
+      }
+
+      if (sponsorshipFormData.file) {
+        formData.append("document", sponsorshipFormData.file);
+        if (sponsorshipFormData.documentName) {
+          formData.append("documentName", sponsorshipFormData.documentName.trim());
+        }
+      }
+
+      const response = await fetch(`${API_URL}/api/sponsorships?origin=au`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const resData = await response.json();
+
+      if (response.ok) {
+        setSponsorshipAlert({
+          type: "success",
+          message: "Sponsorship created and recorded successfully!",
+        });
+        setSponsorshipFormData(getInitialSponsorshipFormData());
+        fetchSponsorships();
+      } else {
+        setSponsorshipAlert({
+          type: "danger",
+          message: resData.message || "Failed to create sponsorship",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating sponsorship:", error);
+      setSponsorshipAlert({
+        type: "danger",
+        message: "Network error occurred while creating sponsorship",
+      });
+    } finally {
+      setIsSponsorshipSubmitting(false);
+    }
+  };
+
+  const handleUpdateSponsorship = async (updatedSponsorship, newFile, newDocName) => {
+    setIsUpdatingSponsorship(true);
+    try {
+      let response;
+      if (newFile) {
+        const formData = new FormData();
+        formData.append("origin", updatedSponsorship.origin || "au");
+        formData.append("document", newFile);
+        if (newDocName) formData.append("documentName", newDocName.trim());
+
+        const uid =
+          typeof updatedSponsorship.userId === "object"
+            ? updatedSponsorship.userId?._id
+            : updatedSponsorship.userId;
+        if (uid) {
+          formData.append("userId", uid);
+        } else {
+          formData.append("userId", "");
+        }
+
+        if (updatedSponsorship.applicationId)
+          formData.append("applicationId", updatedSponsorship.applicationId.trim());
+        if (updatedSponsorship.sponsorshipTrn)
+          formData.append("sponsorshipTrn", updatedSponsorship.sponsorshipTrn.trim());
+        if (updatedSponsorship.visaProgram)
+          formData.append("visaProgram", updatedSponsorship.visaProgram.trim());
+        if (updatedSponsorship.fileNumber)
+          formData.append("fileNumber", updatedSponsorship.fileNumber.trim());
+        if (updatedSponsorship.givenName)
+          formData.append("givenName", updatedSponsorship.givenName.trim());
+        if (updatedSponsorship.familyName)
+          formData.append("familyName", updatedSponsorship.familyName.trim());
+        if (updatedSponsorship.approvedDate)
+          formData.append("approvedDate", updatedSponsorship.approvedDate.trim());
+
+        response = await fetch(
+          `${API_URL}/api/sponsorships/${updatedSponsorship._id}?origin=au`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+      } else {
+        const payload = {
+          ...updatedSponsorship,
+          userId:
+            typeof updatedSponsorship.userId === "object"
+              ? updatedSponsorship.userId?._id
+              : updatedSponsorship.userId || null,
+        };
+        response = await fetch(
+          `${API_URL}/api/sponsorships/${updatedSponsorship._id}?origin=au`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+      }
+
+      const resData = await response.json();
+      if (response.ok) {
+        alert("Sponsorship updated successfully!");
+        setEditingSponsorship(null);
+        fetchSponsorships();
+      } else {
+        alert(resData.message || "Failed to update sponsorship");
+      }
+    } catch (error) {
+      console.error("Error updating sponsorship:", error);
+      alert("Network error updating sponsorship");
+    } finally {
+      setIsUpdatingSponsorship(false);
+    }
+  };
+
+  const handleDeleteSponsorship = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this sponsorship record?"))
+      return;
+    try {
+      const response = await fetch(`${API_URL}/api/sponsorships/${id}?origin=au`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        alert("Sponsorship deleted successfully");
+        fetchSponsorships();
+      } else {
+        const data = await response.json();
+        alert(data.message || "Failed to delete sponsorship");
+      }
+    } catch (error) {
+      console.error("Error deleting sponsorship:", error);
+      alert("Network error deleting sponsorship");
+    }
+  };
+
   if (role !== "admin" && role !== "employe") {
     return (
       <div style={{ padding: "2rem" }}>
@@ -1701,6 +1915,11 @@ function Dashboard() {
                 className={`menu-item ${activeTab === "nominations" ? "active" : ""}`}
                 onClick={() => setActiveTab("nominations")}>
                 <span>📑</span> Nominations
+              </div>
+              <div
+                className={`menu-item ${activeTab === "sponsorships" ? "active" : ""}`}
+                onClick={() => setActiveTab("sponsorships")}>
+                <span>🤝</span> Sponsorships
               </div>
             </>
           )}
@@ -2113,6 +2332,24 @@ function Dashboard() {
             usersList={usersList}
           />
         )}
+
+        {activeTab === "sponsorships" && role === "admin" && (
+          <SponsorshipsTab
+            sponsorshipsList={sponsorshipsList}
+            fetchSponsorships={fetchSponsorships}
+            sponsorshipFormData={sponsorshipFormData}
+            setSponsorshipFormData={setSponsorshipFormData}
+            sponsorshipSearch={sponsorshipSearch}
+            setSponsorshipSearch={setSponsorshipSearch}
+            sponsorshipAlert={sponsorshipAlert}
+            setSponsorshipAlert={setSponsorshipAlert}
+            isSponsorshipSubmitting={isSponsorshipSubmitting}
+            handleCreateSponsorship={handleCreateSponsorship}
+            setEditingSponsorship={setEditingSponsorship}
+            handleDeleteSponsorship={handleDeleteSponsorship}
+            usersList={usersList}
+          />
+        )}
       </main>
 
       {/* Modals */}
@@ -2140,6 +2377,13 @@ function Dashboard() {
         setEditingNomination={setEditingNomination}
         handleUpdateNomination={handleUpdateNomination}
         isUpdatingNomination={isUpdatingNomination}
+        usersList={usersList}
+      />
+      <EditSponsorshipModal
+        editingSponsorship={editingSponsorship}
+        setEditingSponsorship={setEditingSponsorship}
+        handleUpdateSponsorship={handleUpdateSponsorship}
+        isUpdatingSponsorship={isUpdatingSponsorship}
         usersList={usersList}
       />
       <OfferLetterPreviewModal

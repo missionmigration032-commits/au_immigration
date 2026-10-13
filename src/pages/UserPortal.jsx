@@ -23,7 +23,9 @@ function UserPortal({ initialSection }) {
   const [importedVisas, setImportedVisas] = useState([]);
   const [nominations, setNominations] = useState([]);
   const [selectedNomination, setSelectedNomination] = useState(null);
-  const [appCategoryFilter, setAppCategoryFilter] = useState("all"); // 'all', 'visas', 'nominations'
+  const [sponsorships, setSponsorships] = useState([]);
+  const [selectedSponsorship, setSelectedSponsorship] = useState(null);
+  const [appCategoryFilter, setAppCategoryFilter] = useState("all"); // 'all', 'visas', 'nominations', 'sponsorships'
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
@@ -627,6 +629,28 @@ function UserPortal({ initialSection }) {
       } catch (nomErr) {
         console.error("Error fetching user nominations:", nomErr);
       }
+
+      // 3. Fetch Sponsorships for user
+      try {
+        const sponResponse = await fetch(
+          `${API_URL}/api/sponsorships/user/${userId}?origin=au`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (sponResponse.ok) {
+          const sponData = await sponResponse.json();
+          if (sponData && Array.isArray(sponData.sponsorships)) {
+            setSponsorships(sponData.sponsorships);
+          } else if (Array.isArray(sponData)) {
+            setSponsorships(sponData);
+          }
+        }
+      } catch (sponErr) {
+        console.error("Error fetching user sponsorships:", sponErr);
+      }
     } catch (error) {
       console.error("Error fetching user applications:", error);
     } finally {
@@ -667,6 +691,8 @@ function UserPortal({ initialSection }) {
         ? allVisas[0]
         : nominations && nominations.length > 0
         ? nominations[0]
+        : sponsorships && sponsorships.length > 0
+        ? sponsorships[0]
         : null;
 
     if (primaryApp) {
@@ -693,7 +719,7 @@ function UserPortal({ initialSection }) {
         }
       }
     }
-  }, [allVisas, nominations]);
+  }, [allVisas, nominations, sponsorships]);
 
   // Filter and Sort Visas
   const filteredVisas = useMemo(() => {
@@ -824,6 +850,61 @@ function UserPortal({ initialSection }) {
 
     return list;
   }, [nominations, searchQuery, advFilters, sortBy]);
+
+  // Filter and Sort Sponsorships
+  const filteredSponsorships = useMemo(() => {
+    let list = [...sponsorships];
+
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (s) =>
+          (s.visaProgram && s.visaProgram.toLowerCase().includes(q)) ||
+          (s.sponsorshipTrn && s.sponsorshipTrn.toLowerCase().includes(q)) ||
+          (s.applicationId && s.applicationId.toLowerCase().includes(q)) ||
+          (s.fileNumber && s.fileNumber.toLowerCase().includes(q)) ||
+          (s.familyName && s.familyName.toLowerCase().includes(q)) ||
+          (s.givenName && s.givenName.toLowerCase().includes(q)),
+      );
+    }
+
+    // Advanced search filters
+    if (advFilters.trn.trim()) {
+      const trn = advFilters.trn.toLowerCase().trim();
+      list = list.filter(
+        (s) =>
+          (s.sponsorshipTrn && s.sponsorshipTrn.toLowerCase().includes(trn)) ||
+          (s.fileNumber && s.fileNumber.toLowerCase().includes(trn)) ||
+          (s.applicationId && s.applicationId.toLowerCase().includes(trn)),
+      );
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      if (sortBy === "lastUpdated") {
+        const dateA = new Date(a.updatedAt || a.createdAt || a.approvedDate || 0);
+        const dateB = new Date(b.updatedAt || b.createdAt || b.approvedDate || 0);
+        return dateB - dateA;
+      }
+      if (sortBy === "application") {
+        return (a.visaProgram || "").localeCompare(b.visaProgram || "");
+      }
+      if (sortBy === "reference") {
+        return (a.sponsorshipTrn || a.fileNumber || "").localeCompare(
+          b.sponsorshipTrn || b.fileNumber || "",
+        );
+      }
+      if (sortBy === "applicant") {
+        return formatPrimaryApplicantName(a).localeCompare(
+          formatPrimaryApplicantName(b),
+        );
+      }
+      return 0;
+    });
+
+    return list;
+  }, [sponsorships, searchQuery, advFilters, sortBy]);
 
   // Import Application Handler (by Grant Number or TRN)
   const handleImportApplication = async (e) => {
@@ -4312,7 +4393,7 @@ function UserPortal({ initialSection }) {
                     fontWeight: appCategoryFilter === "all" ? "600" : "normal",
                   }}
                   onClick={() => setAppCategoryFilter("all")}>
-                  All ({filteredVisas.length + filteredNominations.length})
+                  All ({filteredVisas.length + filteredNominations.length + filteredSponsorships.length})
                 </button>
                 <button
                   type="button"
@@ -4339,6 +4420,19 @@ function UserPortal({ initialSection }) {
                   }}
                   onClick={() => setAppCategoryFilter("nominations")}>
                   Nominations ({filteredNominations.length})
+                </button>
+                <button
+                  type="button"
+                  className={`immi-btn-sm ${appCategoryFilter === "sponsorships" ? "immi-btn-primary-sm" : ""}`}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: appCategoryFilter === "sponsorships" ? "600" : "normal",
+                  }}
+                  onClick={() => setAppCategoryFilter("sponsorships")}>
+                  Sponsorships ({filteredSponsorships.length})
                 </button>
               </div>
             </div>
@@ -4398,9 +4492,10 @@ function UserPortal({ initialSection }) {
                     <span>Please wait while your ImmiAccount application data is retrieved.</span>
                   </div>
                 </div>
-              : (appCategoryFilter === "all" && filteredVisas.length === 0 && filteredNominations.length === 0) ||
+              : (appCategoryFilter === "all" && filteredVisas.length === 0 && filteredNominations.length === 0 && filteredSponsorships.length === 0) ||
                 (appCategoryFilter === "visas" && filteredVisas.length === 0) ||
-                (appCategoryFilter === "nominations" && filteredNominations.length === 0) ?
+                (appCategoryFilter === "nominations" && filteredNominations.length === 0) ||
+                (appCategoryFilter === "sponsorships" && filteredSponsorships.length === 0) ?
                 <div className="immi-no-results">No results found</div>
               : <table className="immi-applications-table">
                   <thead>
@@ -4513,6 +4608,70 @@ function UserPortal({ initialSection }) {
                             <button
                               className="immi-view-details-btn"
                               onClick={() => setSelectedNomination(nom)}>
+                              View details
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                    {/* Render Sponsorships */}
+                    {(appCategoryFilter === "all" || appCategoryFilter === "sponsorships") &&
+                      filteredSponsorships.map((spon) => (
+                        <tr
+                          key={spon._id || spon.sponsorshipTrn || Math.random()}
+                          className="immi-app-row"
+                          style={{ backgroundColor: "#fbfdfc" }}>
+                          <td className="immi-cell-app">
+                            <span
+                              style={{
+                                display: "inline-block",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                color: "#065f46",
+                                backgroundColor: "#d1fae5",
+                                padding: "1px 6px",
+                                borderRadius: "3px",
+                                marginBottom: "3px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                              }}>
+                              Sponsorship
+                            </span>
+                            <div>
+                              <strong>{spon.visaProgram || "Sponsorship Application"}</strong>
+                            </div>
+                          </td>
+                          <td className="immi-cell-trn">
+                            <strong>{spon.sponsorshipTrn || "—"}</strong>
+                            {spon.fileNumber && (
+                              <div style={{ fontSize: "11px", color: "#64748b" }}>
+                                File: {spon.fileNumber}
+                              </div>
+                            )}
+                            {spon.applicationId && (
+                              <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                                ID: {spon.applicationId}
+                              </div>
+                            )}
+                          </td>
+                          <td className="immi-cell-name">
+                            {formatPrimaryApplicantName(spon)}
+                          </td>
+                          <td className="immi-cell-status">
+                            <span className="immi-status-badge status-approved">
+                              Approved
+                            </span>
+                          </td>
+                          <td className="immi-cell-date">
+                            {spon.approvedDate ||
+                              formatDate(spon.updatedAt || spon.createdAt)}
+                          </td>
+                          <td
+                            className="immi-cell-actions"
+                            style={{ textAlign: "center" }}>
+                            <button
+                              className="immi-view-details-btn"
+                              onClick={() => setSelectedSponsorship(spon)}>
                               View details
                             </button>
                           </td>
@@ -4865,6 +5024,171 @@ function UserPortal({ initialSection }) {
                 type="button"
                 className="immi-btn-cancel"
                 onClick={() => setSelectedNomination(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sponsorship Application Details Modal */}
+      {selectedSponsorship && (
+        <div
+          className="immi-modal-backdrop"
+          onClick={() => setSelectedSponsorship(null)}>
+          <div
+            className="immi-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "680px" }}>
+            <div className="immi-modal-header">
+              <h3>Sponsorship Details &amp; Summary</h3>
+              <button
+                className="immi-modal-close-btn"
+                type="button"
+                onClick={() => setSelectedSponsorship(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="immi-modal-body">
+              <table className="immi-details-table">
+                <tbody>
+                  <tr>
+                    <th>Application Type</th>
+                    <td>
+                      <span
+                        style={{
+                          backgroundColor: "#d1fae5",
+                          color: "#065f46",
+                          fontWeight: "700",
+                          padding: "2px 8px",
+                          borderRadius: "3px",
+                          fontSize: "11px",
+                          letterSpacing: "0.5px",
+                        }}>
+                        SPONSORSHIP APPLICATION
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Visa Program</th>
+                    <td>
+                      <strong>{selectedSponsorship.visaProgram || "—"}</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Sponsorship Reference (TRN)</th>
+                    <td>
+                      <strong style={{ color: "#004b87", letterSpacing: "0.5px" }}>
+                        {selectedSponsorship.sponsorshipTrn || "—"}
+                      </strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Application ID</th>
+                    <td>{selectedSponsorship.applicationId || "—"}</td>
+                  </tr>
+                  <tr>
+                    <th>File Number</th>
+                    <td>
+                      <code
+                        style={{
+                          backgroundColor: "#f1f5f9",
+                          padding: "2px 6px",
+                          borderRadius: "3px",
+                          fontSize: "11px",
+                        }}>
+                        {selectedSponsorship.fileNumber || "—"}
+                      </code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Primary Sponsored Applicant</th>
+                    <td>
+                      {formatPrimaryApplicantName(selectedSponsorship)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Status</th>
+                    <td>
+                      <span className="immi-status-badge status-approved">
+                        Approved
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Approval Date</th>
+                    <td>
+                      {selectedSponsorship.approvedDate ||
+                        formatDate(
+                          selectedSponsorship.updatedAt ||
+                            selectedSponsorship.createdAt,
+                        )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Attached Documents / Approval Notice */}
+              <div style={{ marginTop: "20px" }}>
+                <h4
+                  style={{
+                    margin: "0 0 10px 0",
+                    color: "#002b49",
+                    fontSize: "13px",
+                    borderBottom: "1px solid #e5e7eb",
+                    paddingBottom: "6px",
+                  }}>
+                  Attached Documents &amp; Notices
+                </h4>
+                {selectedSponsorship.document &&
+                Array.isArray(selectedSponsorship.document) &&
+                selectedSponsorship.document.length > 0 ? (
+                  <ul className="immi-docs-list">
+                    {selectedSponsorship.document.map((doc, idx) => (
+                      <li key={idx} className="immi-doc-item">
+                        <span>
+                          📄 {doc.name || "Sponsorship Approval Notice"}
+                        </span>
+                        {doc.url ? (
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="immi-doc-download-btn">
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{ verticalAlign: "middle" }}>
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                              <polyline points="7 10 12 15 17 10"></polyline>
+                              <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>View / Download PDF</span>
+                          </a>
+                        ) : (
+                          <span style={{ color: "#888", fontSize: "11px" }}>
+                            Processed
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
+                    No correspondence files attached to this sponsorship application yet.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="immi-modal-footer">
+              <button
+                type="button"
+                className="immi-btn-cancel"
+                onClick={() => setSelectedSponsorship(null)}>
                 Close
               </button>
             </div>

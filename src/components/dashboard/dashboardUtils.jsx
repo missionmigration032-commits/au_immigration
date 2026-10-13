@@ -373,3 +373,28 @@ export const getInitialNominationFormData = () => ({
   documentName: "Nomination Approval Notice",
 });
 
+export const COMMON_SPONSORSHIP_PROGRAMS = [
+  "Standard Business Sponsorship",
+  "Temporary Skill Shortage visa (subclass 482)",
+  "Skilled Employer Sponsored Regional (subclass 494)",
+  "Temporary Work (Short Stay Specialist) visa (subclass 400)",
+  "Training visa (subclass 407)",
+  "Temporary Activity visa (subclass 408)",
+  "Employer Nomination Scheme",
+  "Parent / Family Sponsorship",
+];
+
+export const getInitialSponsorshipFormData = () => ({
+  userId: "",
+  applicationId: generateNumericString(9),
+  sponsorshipTrn: `SPON${generate8CharRef().slice(0, 7)}`,
+  visaProgram: "Standard Business Sponsorship",
+  fileNumber: `BCC2026/${generateNumericString(7)}`,
+  givenName: "",
+  familyName: "",
+  approvedDate: getFormattedTodayDate(),
+  origin: "au",
+  documentName: "Sponsorship Approval Notice",
+});
+
+
