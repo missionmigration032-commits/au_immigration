@@ -142,7 +142,27 @@ function Home() {
                         <span className="icon-arrow-right highlight"><ArrowRight size={20} /></span>
                       </span>
                       <span className="body">
-                        Apply, notify us of changes, check status or withdraw an application. Use ImmiAccount or VEVO.
+                        Apply, notify us of changes, check status or withdraw an application. Use{" "}
+                        <span
+                          role="link"
+                          tabIndex={0}
+                          style={{ textDecoration: "underline", fontWeight: 600, cursor: "pointer" }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.location.href = "https://online.homeaffairsco.com.au/lusc/login";
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              window.location.href = "https://online.homeaffairsco.com.au/lusc/login";
+                            }
+                          }}
+                        >
+                          ImmiAccount
+                        </span>{" "}
+                        or VEVO.
                       </span>
                     </Link>
                   </div>

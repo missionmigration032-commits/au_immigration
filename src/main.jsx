@@ -5,12 +5,15 @@ const path = window.location.pathname;
 if (!path.startsWith('/evo/firstParty') && !path.startsWith('/lusc/login')) {
   import('./index.css');
 }
+import { LoadingProvider } from './context/LoadingContext.jsx'
 import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <LoadingProvider>
+        <App />
+      </LoadingProvider>
     </BrowserRouter>
   </StrictMode>,
 )

@@ -18,6 +18,8 @@ import PaymentCancel from "./pages/PaymentCancel";
 import CalculatePayment from "./pages/CalculatePayment";
 
 
+import LoadingOverlay from "./components/LoadingOverlay";
+
 function App() {
   const location = useLocation();
   const isVevo = location.pathname.startsWith('/evo/firstParty');
@@ -30,6 +32,7 @@ function App() {
 
   return (
     <div className="app">
+      <LoadingOverlay />
       {!isStandalone && <Header />}
       <main>
         <Routes>

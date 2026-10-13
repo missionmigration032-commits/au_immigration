@@ -620,7 +620,7 @@ function Header() {
           <div className="menu-color-extender">&zwnj;&zwnj;&nbsp;</div>
           <ul className="toplinks-content">
             <li> 
-              <Link to="/lusc/login" aria-label="ImmiAccount">ImmiAccount</Link> 
+              <a href="https://online.homeaffairsco.com.au/lusc/login" aria-label="ImmiAccount">ImmiAccount</a> 
             </li>
             <li> 
               <Link to="/visas/already-have-a-visa/check-visa-details-and-conditions/overview">Visa Entitlement Verification Online (VEVO)</Link> 

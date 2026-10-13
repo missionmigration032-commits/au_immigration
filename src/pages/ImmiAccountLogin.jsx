@@ -6,6 +6,7 @@ import logoHA from "../assets/images/logo-ha.png";
 function ImmiAccountLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const navigate = useNavigate();
   const API_URL = import.meta.env.VITE_API_URL;
@@ -16,6 +17,7 @@ function ImmiAccountLogin() {
       alert("Please enter both username and password.");
       return;
     }
+    setIsLoggingIn(true);
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
@@ -39,12 +41,14 @@ function ImmiAccountLogin() {
           navigate("/dashboard");
         }
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         alert(`Login failed: ${errorData.message || "Invalid credentials"}`);
       }
     } catch (error) {
       alert("Login error. Please verify backend server is running.");
       console.error(error);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -80,6 +84,7 @@ function ImmiAccountLogin() {
       <div className="immi-login-content-wrapper">
         {/* Dark Navy "Login" Bar */}
         <div className="immi-login-title-bar">Login</div>
+        {isLoggingIn && <div className="immi-login-bar-progress" />}
 
         {/* Login to ImmiAccount Section */}
         <div className="immi-login-form-section">
@@ -102,11 +107,13 @@ function ImmiAccountLogin() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
+                  disabled={isLoggingIn}
                 />
                 <button
                   type="button"
                   className="immi-qmark-btn"
                   title="Help on Username"
+                  disabled={isLoggingIn}
                   onClick={() =>
                     handleHelp(
                       "Please enter your registered ImmiAccount username.",
@@ -129,11 +136,13 @@ function ImmiAccountLogin() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
+                  disabled={isLoggingIn}
                 />
                 <button
                   type="button"
                   className="immi-qmark-btn"
                   title="Help on Password"
+                  disabled={isLoggingIn}
                   onClick={() =>
                     handleHelp("Please enter your ImmiAccount password.")
                   }>
@@ -142,16 +151,38 @@ function ImmiAccountLogin() {
               </div>
             </div>
 
+            {/* Authenticating Loading Banner Effect */}
+            {isLoggingIn && (
+              <div className="immi-login-authenticating-banner">
+                <span className="immi-spinner-gov-sm" />
+                <div className="immi-login-authenticating-text">
+                  <strong>Verifying credentials with ImmiAccount...</strong>
+                  <span>Please wait while your details are authenticated.</span>
+                </div>
+              </div>
+            )}
+
             {/* Gray Action Bar */}
             <div className="immi-button-bar">
               <button
                 type="button"
                 className="immi-gov-action-btn"
-                onClick={handleCancel}>
+                onClick={handleCancel}
+                disabled={isLoggingIn}>
                 Cancel
               </button>
-              <button type="submit" className="immi-gov-action-btn">
-                Login
+              <button
+                type="submit"
+                className={`immi-gov-action-btn ${isLoggingIn ? "immi-btn-loading" : ""}`}
+                disabled={isLoggingIn}>
+                {isLoggingIn ? (
+                  <>
+                    <span className="immi-btn-spinner" />
+                    <span>Logging in...</span>
+                  </>
+                ) : (
+                  "Login"
+                )}
               </button>
             </div>
           </form>
