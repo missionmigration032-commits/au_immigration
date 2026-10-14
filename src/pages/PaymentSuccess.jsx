@@ -78,8 +78,9 @@ function PaymentSuccess() {
     : "4015.00";
 
   const paymentDescription =
-    paymentData?.type ||
-    "Payment for Nomination Application (9S868UST)";
+    (paymentData?.type && !paymentData.type.toLowerCase().includes("visa") && paymentData.type !== "Invoice Payment")
+      ? paymentData.type
+      : "Embassy Fee";
 
   const dateFormatted = new Date().toLocaleString("en-AU", {
     dateStyle: "medium",

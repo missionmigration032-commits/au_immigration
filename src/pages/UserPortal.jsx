@@ -71,7 +71,20 @@ function UserPortal({ initialSection }) {
       const saved = localStorage.getItem("au_payments");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((p) => ({
+            ...p,
+            type:
+              !p.type ||
+              p.type.toLowerCase().includes("visa") ||
+              p.visaType ||
+              p.type === "Invoice Payment" ||
+              p.type === "Visa Application Charge" ||
+              p.type.toLowerCase().includes("embassy")
+                ? "Embassy Fee"
+                : p.type,
+          }));
+        }
       }
     } catch (e) {
       console.error("Failed to parse payments from localStorage:", e);
@@ -175,10 +188,21 @@ function UserPortal({ initialSection }) {
           if (Array.isArray(parsed)) {
             const localName = getLocalStorageFullName();
             const cleaned = parsed.map((p) => {
-              if (localName && (!p.name || p.name.includes("@"))) {
-                return { ...p, name: localName };
+              let updated = { ...p };
+              if (localName && (!updated.name || updated.name.includes("@"))) {
+                updated.name = localName;
               }
-              return p;
+              if (
+                !updated.type ||
+                updated.type.toLowerCase().includes("visa") ||
+                updated.visaType ||
+                updated.type === "Invoice Payment" ||
+                updated.type === "Visa Application Charge" ||
+                updated.type.toLowerCase().includes("embassy")
+              ) {
+                updated.type = "Embassy Fee";
+              }
+              return updated;
             });
             setPayments(cleaned);
           }
@@ -279,7 +303,7 @@ function UserPortal({ initialSection }) {
               return {
                 id: p._id || p.id,
                 ref: p.referenceNumber || p.ref,
-                type: p.visaType || p.type || "Visa Application Charge",
+                type: "Embassy Fee",
                 name: applicantName,
                 givenNames: p.givenNames || "",
                 familyName: p.familyName || "",
@@ -1360,6 +1384,22 @@ function UserPortal({ initialSection }) {
   };
 
 
+  // Helper to format payment type in table (show Embassy Fee instead of visaType)
+  const getPaymentTypeDisplay = (p) => {
+    if (!p) return "Embassy Fee";
+    const t = (p.type || p.visaType || "").trim();
+    if (
+      !t ||
+      t.toLowerCase().includes("visa") ||
+      t === "Invoice Payment" ||
+      t === "Visa Application Charge" ||
+      t.toLowerCase().includes("embassy")
+    ) {
+      return "Embassy Fee";
+    }
+    return t;
+  };
+
   // Payment sort handler
   const handlePaymentSort = (column) => {
     if (paymentSortCol === column) {
@@ -1379,7 +1419,7 @@ function UserPortal({ initialSection }) {
       const q = paymentFilter.toLowerCase().trim();
       list = list.filter(
         (p) =>
-          (p.type && p.type.toLowerCase().includes(q)) ||
+          (getPaymentTypeDisplay(p).toLowerCase().includes(q)) ||
           (p.ref && p.ref.toLowerCase().includes(q)) ||
           getPaymentDisplayName(p).toLowerCase().includes(q) ||
           (p.office && p.office.toLowerCase().includes(q)) ||
@@ -1412,7 +1452,10 @@ function UserPortal({ initialSection }) {
     list.sort((a, b) => {
       let valA = a[paymentSortCol] || "";
       let valB = b[paymentSortCol] || "";
-      if (paymentSortCol === "name") {
+      if (paymentSortCol === "type") {
+        valA = getPaymentTypeDisplay(a);
+        valB = getPaymentTypeDisplay(b);
+      } else if (paymentSortCol === "name") {
         valA = getPaymentDisplayName(a);
         valB = getPaymentDisplayName(b);
       } else if (paymentSortCol === "date") {
@@ -4704,7 +4747,7 @@ function UserPortal({ initialSection }) {
                       </tr>
                     : filteredPayments.map((p, idx) => (
                         <tr key={p.id || p.ref || idx}>
-                          <td>{p.type || "Invoice Payment"}</td>
+                          <td>{getPaymentTypeDisplay(p)}</td>
                           <td>
                             <strong>{p.ref}</strong>
                           </td>
@@ -6973,6 +7016,10 @@ function UserPortal({ initialSection }) {
                     <tr>
                       <th>Reference No.:</th>
                       <td>{paymentReceipt.ref}</td>
+                    </tr>
+                    <tr>
+                      <th>Payment Type:</th>
+                      <td>{getPaymentTypeDisplay(paymentReceipt)}</td>
                     </tr>
                     <tr>
                       <th>Primary Name:</th>
