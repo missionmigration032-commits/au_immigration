@@ -20,7 +20,14 @@ function PaymentCancel() {
   };
 
   return (
-    <div className="immi-application" style={{ minHeight: "100vh", backgroundColor: "#b5bcc4", display: "flex", flexDirection: "column" }}>
+    <div
+      className="immi-application"
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#b5bcc4",
+        display: "flex",
+        flexDirection: "column",
+      }}>
       {/* Header */}
       <header className="immi-header">
         <div className="immi-header-left">
@@ -47,7 +54,12 @@ function PaymentCancel() {
       </header>
 
       {/* Main Content (Full Width) */}
-      <main style={{ width: "100%", padding: "14px 24px 14px 24px", boxSizing: "border-box" }}>
+      <main
+        style={{
+          width: "100%",
+          padding: "14px 24px 14px 24px",
+          boxSizing: "border-box",
+        }}>
         <div
           style={{
             backgroundColor: "white",
@@ -86,15 +98,34 @@ function PaymentCancel() {
             Payment Cancelled
           </h1>
 
-          <p style={{ color: "#475569", fontSize: "14px", lineHeight: "1.6", margin: "0 0 20px 0" }}>
-            Your Razorpay transaction was cancelled or timed out. No funds were debited from your card or account.
+          <p
+            style={{
+              color: "#475569",
+              fontSize: "14px",
+              lineHeight: "1.6",
+              margin: "0 0 20px 0",
+            }}>
+            Your payment transaction was cancelled or timed out. No funds were
+            debited from your card or account.
           </p>
 
-          <p style={{ color: "#64748b", fontSize: "12px", margin: "0 0 25px 0" }}>
-            You can try making your payment again at any time through the ImmiAccount Make Payments service.
+          <p
+            style={{
+              color: "#64748b",
+              fontSize: "12px",
+              margin: "0 0 25px 0",
+            }}>
+            You can try making your payment again at any time through the
+            ImmiAccount Make Payments service.
           </p>
 
-          <div style={{ display: "flex", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}>
             <button
               type="button"
               className="immi-btn-classic"

@@ -14,12 +14,16 @@ function OverviewTab({
 
   // Payments
   paymentsList,
+  sponsorshipsList = [],
+  nominationsList = [],
   usersList,
   fetchPayments,
   paymentSearch,
   setPaymentSearch,
   paymentStatusFilter,
   setPaymentStatusFilter,
+  paymentTypeFilter,
+  setPaymentTypeFilter,
   handleTogglePaymentStatus,
   handleDeletePayment,
 
@@ -74,12 +78,16 @@ function OverviewTab({
       <PaymentsTable
         paymentsList={paymentsList}
         visasList={visasList}
+        sponsorshipsList={sponsorshipsList}
+        nominationsList={nominationsList}
         usersList={usersList}
         fetchPayments={fetchPayments}
         paymentSearch={paymentSearch}
         setPaymentSearch={setPaymentSearch}
         paymentStatusFilter={paymentStatusFilter}
         setPaymentStatusFilter={setPaymentStatusFilter}
+        paymentTypeFilter={paymentTypeFilter}
+        setPaymentTypeFilter={setPaymentTypeFilter}
         handleTogglePaymentStatus={handleTogglePaymentStatus}
         handleDeletePayment={handleDeletePayment}
       />

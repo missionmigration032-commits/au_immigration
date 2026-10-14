@@ -10,7 +10,8 @@ function CalculatePayment() {
 
   const searchParams = new URLSearchParams(location.search);
   const paymentId = searchParams.get("paymentId") || "";
-  const paramSubclass = searchParams.get("subclass") || "600 Visitor/Tourist outside Australia";
+  const paramSubclass =
+    searchParams.get("subclass") || "482 skill in demand visa";
 
   // Today's date formatted as DD/MM/YYYY
   const getTodayFormatted = () => {
@@ -22,14 +23,20 @@ function CalculatePayment() {
   };
 
   const [selectedSubclass, setSelectedSubclass] = useState(() => {
-    if (paramSubclass.includes("600") || paramSubclass.toLowerCase().includes("visitor")) {
+    if (
+      paramSubclass.includes("600") ||
+      paramSubclass.toLowerCase().includes("visitor")
+    ) {
       return "600 Visitor/Tourist outside Australia";
     }
-    if (paramSubclass.includes("500") || paramSubclass.toLowerCase().includes("student")) {
+    if (
+      paramSubclass.includes("500") ||
+      paramSubclass.toLowerCase().includes("student")
+    ) {
       return "500 Student Visa";
     }
     if (paramSubclass.includes("482")) {
-      return "482 Temporary Skill Shortage";
+      return "482 skill in demand visa";
     }
     if (paramSubclass.includes("189")) {
       return "189 Skilled Independent";
@@ -37,7 +44,10 @@ function CalculatePayment() {
     if (paramSubclass.includes("190")) {
       return "190 Skilled Nominated";
     }
-    if (paramSubclass.includes("820") || paramSubclass.toLowerCase().includes("partner")) {
+    if (
+      paramSubclass.includes("820") ||
+      paramSubclass.toLowerCase().includes("partner")
+    ) {
       return "820 Partner (Temporary)";
     }
     if (paramSubclass.includes("417")) {
@@ -46,12 +56,12 @@ function CalculatePayment() {
     if (paramSubclass.includes("485")) {
       return "485 Temporary Graduate";
     }
-    return paramSubclass || "600 Visitor/Tourist outside Australia";
+    return paramSubclass || "482 skill in demand visa";
   });
 
   const [lodgementDate, setLodgementDate] = useState(getTodayFormatted());
   const [isCalculated, setIsCalculated] = useState(false);
-  const [calculatedAmount, setCalculatedAmount] = useState("145.00");
+  const [calculatedAmount, setCalculatedAmount] = useState("1455.00");
   const [showHowCalculated, setShowHowCalculated] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -91,22 +101,33 @@ function CalculatePayment() {
     const text = (sub || "").toLowerCase();
     if (text.includes("600") || text.includes("visitor")) return "145.00";
     if (text.includes("500") || text.includes("student")) return "710.00";
-    if (text.includes("482") || text.includes("skill shortage")) return "1455.00";
+    if (text.includes("482") || text.includes("skill shortage") || text.includes("skill in demand"))
+      return "1455.00";
     if (text.includes("189") || text.includes("190")) return "4640.00";
-    if (text.includes("820") || text.includes("309") || text.includes("partner")) return "8850.00";
-    if (text.includes("417") || text.includes("working holiday")) return "635.00";
+    if (
+      text.includes("820") ||
+      text.includes("309") ||
+      text.includes("partner")
+    )
+      return "8850.00";
+    if (text.includes("417") || text.includes("working holiday"))
+      return "635.00";
     if (text.includes("485") || text.includes("graduate")) return "1895.00";
     return "145.00";
   };
 
   const getSubclassCodeLabel = (sub) => {
     const text = (sub || "").toLowerCase();
-    if (text.includes("600") || text.includes("visitor")) return "FA600 Visitor/Tourist outside Australia";
-    if (text.includes("500") || text.includes("student")) return "FA500 Student Visa";
-    if (text.includes("482") || text.includes("skill shortage")) return "FA482 Temporary Skill Shortage";
+    if (text.includes("600") || text.includes("visitor"))
+      return "FA600 Visitor/Tourist outside Australia";
+    if (text.includes("500") || text.includes("student"))
+      return "FA500 Student Visa";
+    if (text.includes("482") || text.includes("skill shortage") || text.includes("skill in demand"))
+      return "FA482 skill in demand visa";
     if (text.includes("189")) return "FA189 Skilled Independent";
     if (text.includes("190")) return "FA190 Skilled Nominated";
-    if (text.includes("820") || text.includes("partner")) return "FA820 Partner (Temporary)";
+    if (text.includes("820") || text.includes("partner"))
+      return "FA820 Partner (Temporary)";
     if (text.includes("417")) return "FA417 Working Holiday";
     if (text.includes("485")) return "FA485 Temporary Graduate";
     return `FA ${sub}`;
@@ -121,13 +142,21 @@ function CalculatePayment() {
       // Fetch payment amount from server if paymentId and token are available
       if (paymentId && token) {
         try {
-          const res = await fetch(`${API_URL}/api/payments/${paymentId}?origin=au`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const res = await fetch(
+            `${API_URL}/api/payments/${paymentId}?origin=au`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
           if (res.ok) {
             const data = await res.json();
             const pay = data.payment || data.data || data;
-            if (pay && pay.amount !== undefined && pay.amount !== null && Number(pay.amount) > 0) {
+            if (
+              pay &&
+              pay.amount !== undefined &&
+              pay.amount !== null &&
+              Number(pay.amount) > 0
+            ) {
               finalFee = parseFloat(pay.amount).toFixed(2);
             }
           }
@@ -196,22 +225,60 @@ function CalculatePayment() {
       }
 
       // Redirect back to /user-portal/payment?paymentId=...&calculatedAmount=...
-      navigate(`/user-portal/payment?paymentId=${paymentId}&calculatedAmount=${finalAmt}`);
+      navigate(
+        `/user-portal/payment?paymentId=${paymentId}&calculatedAmount=${finalAmt}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#ffffff", display: "flex", flexDirection: "column", fontFamily: "'Segoe UI', Arial, sans-serif" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#ffffff",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "'Segoe UI', Arial, sans-serif",
+      }}>
       {/* Top Header matching reference screenshot */}
-      <header style={{ backgroundColor: "#002b49", color: "#ffffff", display: "flex", alignItems: "stretch", justifyContent: "space-between", minHeight: "68px", borderBottom: "4px solid #0072ce", boxSizing: "border-box" }}>
+      <header
+        style={{
+          backgroundColor: "#002b49",
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "stretch",
+          justifyContent: "space-between",
+          minHeight: "68px",
+          borderBottom: "4px solid #0072ce",
+          boxSizing: "border-box",
+        }}>
         {/* Left: Coat of Arms + X Close */}
-        <div style={{ display: "flex", alignItems: "center", padding: "8px 24px", gap: "20px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            padding: "8px 24px",
+            gap: "20px",
+          }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <img src={footerLogo} alt="Australian Government" style={{ height: "42px", objectFit: "contain" }} />
-            <div style={{ display: "flex", flexDirection: "column", fontSize: "11px", lineHeight: "1.25", color: "#ffffff" }}>
-              <span style={{ fontWeight: "600", letterSpacing: "0.5px" }}>Australian Government</span>
+            <img
+              src={footerLogo}
+              alt="Australian Government"
+              style={{ height: "42px", objectFit: "contain" }}
+            />
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                fontSize: "11px",
+                lineHeight: "1.25",
+                color: "#ffffff",
+              }}>
+              <span style={{ fontWeight: "600", letterSpacing: "0.5px" }}>
+                Australian Government
+              </span>
               <span style={{ opacity: 0.9 }}>Department of Home Affairs</span>
             </div>
           </div>
@@ -231,26 +298,52 @@ function CalculatePayment() {
               marginLeft: "10px",
               boxShadow: "inset 0 1px 0 #fff",
             }}
-            title="Close and return to payment"
-          >
+            title="Close and return to payment">
             ✕ Close
           </button>
         </div>
 
         {/* Right: Department External Links Bar */}
-        <div style={{ display: "flex", alignItems: "center", padding: "0 24px", fontSize: "11px", color: "#e2e8f0", gap: "8px", flexWrap: "wrap" }}>
-          <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => navigate("/user-portal")}>ImmiAccount</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            padding: "0 24px",
+            fontSize: "11px",
+            color: "#e2e8f0",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}>
+          <span
+            style={{ cursor: "pointer", textDecoration: "underline" }}
+            onClick={() => navigate("/user-portal")}>
+            ImmiAccount
+          </span>
           <span style={{ opacity: 0.6 }}>|</span>
-          <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => navigate("/evo/firstParty")}>Visa Entitlement Verification Online (VEVO)</span>
+          <span
+            style={{ cursor: "pointer", textDecoration: "underline" }}
+            onClick={() => navigate("/evo/firstParty")}>
+            Visa Entitlement Verification Online (VEVO)
+          </span>
           <span style={{ opacity: 0.6 }}>|</span>
-          <span style={{ cursor: "pointer", textDecoration: "underline" }}>My Tourist Refund Scheme (TRS)</span>
+          <span style={{ cursor: "pointer", textDecoration: "underline" }}>
+            My Tourist Refund Scheme (TRS)
+          </span>
         </div>
       </header>
 
       {/* Main Layout: Left Sidebar + Right Form */}
-      <div style={{ display: "flex", flex: 1, minHeight: "calc(100vh - 72px)" }}>
+      <div
+        style={{ display: "flex", flex: 1, minHeight: "calc(100vh - 72px)" }}>
         {/* Left Sidebar matching reference screenshot */}
-        <aside style={{ width: "200px", minWidth: "200px", backgroundColor: "#eef2f5", borderRight: "1px solid #ced4da", boxSizing: "border-box" }}>
+        <aside
+          style={{
+            width: "200px",
+            minWidth: "200px",
+            backgroundColor: "#eef2f5",
+            borderRight: "1px solid #ced4da",
+            boxSizing: "border-box",
+          }}>
           <div
             style={{
               padding: "16px 14px",
@@ -260,23 +353,44 @@ function CalculatePayment() {
               borderLeft: "4px solid #004b87",
               backgroundColor: "#e2e8f0",
               cursor: "default",
-            }}
-          >
+            }}>
             Pre-pay Paper Service
           </div>
         </aside>
 
         {/* Main Panel matching reference screenshot */}
-        <main style={{ flex: 1, padding: "36px 48px", boxSizing: "border-box", position: "relative" }}>
+        <main
+          style={{
+            flex: 1,
+            padding: "36px 48px",
+            boxSizing: "border-box",
+            position: "relative",
+          }}>
           <div style={{ maxWidth: "680px", margin: "0 auto" }}>
-            <h1 style={{ fontSize: "28px", fontWeight: "400", color: "#111827", margin: "0 0 32px 0", textAlign: "center" }}>
+            <h1
+              style={{
+                fontSize: "28px",
+                fontWeight: "400",
+                color: "#111827",
+                margin: "0 0 32px 0",
+                textAlign: "center",
+              }}>
               Online Prepayment Portal
             </h1>
 
-            <form onSubmit={handleCalculate} style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+            <form
+              onSubmit={handleCalculate}
+              style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
               {/* Visa Subclass */}
               <div>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: "#222", marginBottom: "8px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "#222",
+                    marginBottom: "8px",
+                  }}>
                   Visa subclass <span style={{ color: "#d9381e" }}>*</span>
                 </label>
                 <select
@@ -297,22 +411,42 @@ function CalculatePayment() {
                     backgroundColor: "#ffffff",
                     color: "#333",
                     boxSizing: "border-box",
-                  }}
-                >
-                  <option value="600 Visitor/Tourist outside Australia">600 Visitor/Tourist outside Australia</option>
+                  }}>
+                  <option value="600 Visitor/Tourist outside Australia">
+                    600 Visitor/Tourist outside Australia
+                  </option>
                   <option value="500 Student Visa">500 Student Visa</option>
-                  <option value="482 Temporary Skill Shortage">482 Temporary Skill Shortage</option>
-                  <option value="189 Skilled Independent">189 Skilled Independent</option>
-                  <option value="190 Skilled Nominated">190 Skilled Nominated</option>
-                  <option value="820 Partner (Temporary)">820 Partner (Temporary)</option>
-                  <option value="417 Working Holiday">417 Working Holiday</option>
-                  <option value="485 Temporary Graduate">485 Temporary Graduate</option>
+                  <option value="482 skill in demand visa">
+                    482 skill in demand visa
+                  </option>
+                  <option value="189 Skilled Independent">
+                    189 Skilled Independent
+                  </option>
+                  <option value="190 Skilled Nominated">
+                    190 Skilled Nominated
+                  </option>
+                  <option value="820 Partner (Temporary)">
+                    820 Partner (Temporary)
+                  </option>
+                  <option value="417 Working Holiday">
+                    417 Working Holiday
+                  </option>
+                  <option value="485 Temporary Graduate">
+                    485 Temporary Graduate
+                  </option>
                 </select>
               </div>
 
               {/* Lodgement Date */}
               <div>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: "#222", marginBottom: "8px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "#222",
+                    marginBottom: "8px",
+                  }}>
                   What date will you be lodging your application?
                 </label>
                 <div
@@ -324,8 +458,7 @@ function CalculatePayment() {
                     border: "1px solid #7f9db9",
                     borderRadius: "1px",
                     backgroundColor: "#ffffff",
-                  }}
-                >
+                  }}>
                   <input
                     type="text"
                     value={lodgementDate}
@@ -373,15 +506,15 @@ function CalculatePayment() {
                       position: "relative",
                       zIndex: 1,
                     }}
-                    title="Choose Date"
-                  >
+                    title="Choose Date">
                     📅
                   </div>
                 </div>
               </div>
 
               {/* Price Note */}
-              <div style={{ fontSize: "12px", color: "#666", marginTop: "-6px" }}>
+              <div
+                style={{ fontSize: "12px", color: "#666", marginTop: "-6px" }}>
                 * Price will be displayed in Australian dollars
               </div>
 
@@ -403,8 +536,7 @@ function CalculatePayment() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
-                  }}
-                >
+                  }}>
                   {isCalculating && (
                     <span
                       style={{
@@ -426,49 +558,143 @@ function CalculatePayment() {
             {/* Price Breakdown Section matching Image 1 */}
             {isCalculated && (
               <div style={{ marginTop: "28px", animation: "fadeIn 0.3s ease" }}>
-                <div style={{ fontSize: "14px", fontWeight: "600", color: "#222", marginBottom: "4px" }}>
+                <div
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#222",
+                    marginBottom: "4px",
+                  }}>
                   Price starts from AUD {calculatedAmount}
                 </div>
 
                 <div
-                  style={{ fontSize: "12px", color: "#004b87", cursor: "pointer", textDecoration: "underline", marginBottom: "16px" }}
-                  onClick={() => setShowHowCalculated(!showHowCalculated)}
-                >
+                  style={{
+                    fontSize: "12px",
+                    color: "#004b87",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    marginBottom: "16px",
+                  }}
+                  onClick={() => setShowHowCalculated(!showHowCalculated)}>
                   How this price is calculated
                 </div>
 
                 {showHowCalculated && (
-                  <div style={{ backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", padding: "10px 14px", borderRadius: "3px", fontSize: "12px", color: "#475569", marginBottom: "14px", lineHeight: "1.4" }}>
-                    The price is determined based on the visa subclass application base charge set by the Department of Home Affairs under the Migration Regulations 1994. No GST is payable on visa application charges.
+                  <div
+                    style={{
+                      backgroundColor: "#f8fafc",
+                      border: "1px solid #cbd5e1",
+                      padding: "10px 14px",
+                      borderRadius: "3px",
+                      fontSize: "12px",
+                      color: "#475569",
+                      marginBottom: "14px",
+                      lineHeight: "1.4",
+                    }}>
+                    The price is determined based on the visa subclass
+                    application base charge set by the Department of Home
+                    Affairs under the Migration Regulations 1994. No GST is
+                    payable on visa application charges.
                   </div>
                 )}
 
                 {/* Calculation Table matching Image 1 */}
-                <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px", fontSize: "13px", color: "#333" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    marginTop: "10px",
+                    fontSize: "13px",
+                    color: "#333",
+                  }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid #222" }}>
-                      <th style={{ textAlign: "left", padding: "8px 0", fontWeight: "600", width: "65%" }}>Product</th>
-                      <th style={{ textAlign: "center", padding: "8px 0", fontWeight: "600", width: "15%" }}>Quantity</th>
-                      <th style={{ textAlign: "right", padding: "8px 0", fontWeight: "600", width: "20%" }}>Price</th>
+                      <th
+                        style={{
+                          textAlign: "left",
+                          padding: "8px 0",
+                          fontWeight: "600",
+                          width: "65%",
+                        }}>
+                        Product
+                      </th>
+                      <th
+                        style={{
+                          textAlign: "center",
+                          padding: "8px 0",
+                          fontWeight: "600",
+                          width: "15%",
+                        }}>
+                        Quantity
+                      </th>
+                      <th
+                        style={{
+                          textAlign: "right",
+                          padding: "8px 0",
+                          fontWeight: "600",
+                          width: "20%",
+                        }}>
+                        Price
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td style={{ padding: "14px 0 10px 0", color: "#475569" }}>
+                      <td
+                        style={{ padding: "14px 0 10px 0", color: "#475569" }}>
                         {getSubclassCodeLabel(selectedSubclass)}
                       </td>
-                      <td style={{ textAlign: "center", padding: "14px 0 10px 0", color: "#475569" }}>1</td>
-                      <td style={{ textAlign: "right", padding: "14px 0 10px 0", color: "#475569" }}>{calculatedAmount}</td>
+                      <td
+                        style={{
+                          textAlign: "center",
+                          padding: "14px 0 10px 0",
+                          color: "#475569",
+                        }}>
+                        1
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "14px 0 10px 0",
+                          color: "#475569",
+                        }}>
+                        {calculatedAmount}
+                      </td>
                     </tr>
                     <tr>
-                      <td style={{ padding: "10px 0", color: "#475569" }}>GST</td>
-                      <td style={{ textAlign: "center", padding: "10px 0" }}></td>
-                      <td style={{ textAlign: "right", padding: "10px 0", color: "#475569" }}>0.00</td>
+                      <td style={{ padding: "10px 0", color: "#475569" }}>
+                        GST
+                      </td>
+                      <td
+                        style={{ textAlign: "center", padding: "10px 0" }}></td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "10px 0",
+                          color: "#475569",
+                        }}>
+                        0.00
+                      </td>
                     </tr>
                     <tr style={{ borderTop: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "14px 0", fontWeight: "bold", color: "#111827" }}>Total</td>
-                      <td style={{ textAlign: "center", padding: "14px 0" }}></td>
-                      <td style={{ textAlign: "right", padding: "14px 0", fontWeight: "bold", color: "#111827" }}>
+                      <td
+                        style={{
+                          padding: "14px 0",
+                          fontWeight: "bold",
+                          color: "#111827",
+                        }}>
+                        Total
+                      </td>
+                      <td
+                        style={{ textAlign: "center", padding: "14px 0" }}></td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "14px 0",
+                          fontWeight: "bold",
+                          color: "#111827",
+                        }}>
                         AUD {calculatedAmount}
                       </td>
                     </tr>
@@ -476,7 +702,12 @@ function CalculatePayment() {
                 </table>
 
                 {/* Continue Button at Bottom Right matching Image 1 */}
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "24px",
+                  }}>
                   <button
                     type="button"
                     onClick={handleContinue}
@@ -489,13 +720,13 @@ function CalculatePayment() {
                       fontSize: "13px",
                       fontWeight: "normal",
                       cursor: isSubmitting ? "not-allowed" : "pointer",
-                      boxShadow: "inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,0.1)",
+                      boxShadow:
+                        "inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,0.1)",
                       borderRadius: "1px",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: "6px",
-                    }}
-                  >
+                    }}>
                     {isSubmitting ? "Updating..." : "Continue"}
                   </button>
                 </div>
@@ -517,8 +748,7 @@ function CalculatePayment() {
               userSelect: "none",
               pointerEvents: "none",
               fontFamily: "Georgia, serif",
-            }}
-          >
+            }}>
             HA
           </div>
         </main>

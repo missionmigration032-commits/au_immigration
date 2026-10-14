@@ -2377,9 +2377,19 @@ input.immi-filter-input[type="text"]:hover {
 }
 
 @keyframes immi-login-shimmer {
-  0% { left: -40%; width: 30%; }
-  50% { width: 50%; }
-  100% { left: 100%; width: 30%; }
+  0% {
+    left: -40%;
+    width: 30%;
+  }
+
+  50% {
+    width: 50%;
+  }
+
+  100% {
+    left: 100%;
+    width: 30%;
+  }
 }
 
 /* Login Authenticating Feedback Banner */
@@ -2415,6 +2425,328 @@ input.immi-filter-input[type="text"]:hover {
 }
 
 @keyframes immi-fade-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Responsive Design System for All Devices (Mobile, Tablet, Desktop)
+   ========================================================================== */
+
+/* Tablet & Mobile (< 992px) */
+@media screen and (max-width: 991px) {
+  .immi-header {
+    padding: 0 16px;
+    height: 56px;
+    min-height: 56px;
+  }
+
+  .immi-header-left img,
+  .immi-header-logo-stacked {
+    height: 38px;
+    max-width: 110px;
+  }
+
+  .immi-header-right h1 {
+    font-size: 20px;
+  }
+
+  .immi-header-top-bar {
+    padding: 0 16px;
+  }
+
+  .immi-nav-container {
+    padding: 0 12px;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+
+  .immi-nav-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .immi-nav-tab {
+    flex-shrink: 0;
+    padding: 8px 10px 7px 10px;
+    font-size: 11.5px;
+  }
+
+  .immi-application main,
+  .immi-content-container,
+  .immi-login-content-wrapper {
+    padding: 12px 14px !important;
+  }
+
+  .immi-make-payment-card {
+    padding: 16px 18px;
+  }
+
+  .immi-payment-options-card {
+    padding: 14px 18px;
+  }
+
+  .immi-payments-content {
+    padding: 12px;
+  }
+
+  .immi-modal-content {
+    width: 95% !important;
+    max-width: 95% !important;
+    padding: 16px !important;
+  }
+}
+
+/* Mobile Devices (< 768px) */
+@media screen and (max-width: 767px) {
+  .immi-header-top-bar {
+    height: auto;
+    min-height: 28px;
+    padding: 6px 12px;
+    justify-content: space-between;
+  }
+
+  .immi-header-top-bar .immi-header-user-row {
+    gap: 12px;
+    font-size: 11px;
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .immi-header {
+    height: auto;
+    min-height: 50px;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .immi-header-left img,
+  .immi-header-logo-stacked {
+    height: 32px;
+    max-width: 95px;
+  }
+
+  .immi-header-right h1 {
+    font-size: 17px;
+    text-align: right;
+  }
+
+  .immi-gov-top-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .immi-gov-btn-group {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .immi-gov-btn {
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+    padding: 6px 10px;
+    font-size: 11.5px;
+  }
+
+  .immi-history-search-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .immi-history-group {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .immi-payments-filter-row {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .immi-payments-filter-row .immi-filter-input,
+  input.immi-filter-input[type="text"] {
+    width: 100% !important;
+    flex: 1;
+  }
+
+  .immi-payments-table-wrap,
+  .immi-table-wrap,
+  .immi-card-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    display: block;
+    border-radius: 4px;
+  }
+
+  .immi-prepay-table {
+    display: block;
+    width: 100%;
+  }
+
+  .immi-prepay-table tbody,
+  .immi-prepay-table tr,
+  .immi-prepay-table td {
+    display: block;
+    width: 100% !important;
+    box-sizing: border-box;
+    height: auto !important;
+  }
+
+  .immi-prepay-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f6;
+  }
+
+  .immi-prepay-table td.label-cell {
+    width: 100% !important;
+    font-weight: 600;
+    padding-bottom: 4px;
+    color: #1e293b;
+  }
+
+  .immi-prepay-table td.value-cell {
+    width: 100% !important;
+    padding-left: 0;
+  }
+
+  .immi-prepay-input {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    height: 32px;
+    font-size: 13px;
+  }
+
+  .immi-prepay-select {
+    width: 100% !important;
+    box-sizing: border-box;
+    height: 32px;
+    font-size: 13px;
+  }
+
+  .immi-options-radios,
+  .immi-options-radios-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .immi-options-actions {
+    flex-direction: column-reverse !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .immi-options-actions button {
+    width: 100% !important;
+    padding: 10px !important;
+    justify-content: center;
+  }
+
+  .immi-prepay-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .immi-prepay-btn-group {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .immi-prepay-btn-group button {
+    width: 100%;
+    padding: 8px;
+    justify-content: center;
+  }
+
+  .immi-btn-back-action {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Login page responsiveness */
+  .immi-field-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+
+  .immi-field-label {
+    width: 100% !important;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .immi-field-control {
+    width: 100% !important;
+  }
+
+  .immi-text-input {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 32px;
+    font-size: 13px;
+    padding: 4px 8px;
+  }
+
+  .immi-button-bar {
+    height: auto;
+    padding: 8px;
+    gap: 10px;
+  }
+
+  .immi-button-bar .immi-gov-action-btn {
+    padding: 6px 18px;
+    height: 32px;
+    font-size: 13px;
+  }
+
+  .immi-dashboard-footer {
+    padding: 12px;
+  }
+
+  .immi-dashboard-footer .immi-footer-inner {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 10px;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  .immi-footer-sep {
+    display: none;
+  }
+
+  /* Account Management */
+  .immi-account-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .immi-account-label {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-weight: bold;
+  }
+
+  .immi-account-value {
+    width: 100%;
+  }
 }

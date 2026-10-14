@@ -3,11 +3,10 @@ import { useNavigate, useLocation } from "react-router-dom";
 import "./immiaccount.css";
 import logoStacked from "../assets/images/logostacked.png";
 import {
-  fetchRazorpayConfig,
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  loadRazorpayScript,
-} from "../services/razorpayService";
+  fetchStripeConfig,
+  createCheckoutSession,
+  verifyPaymentSession,
+} from "../services/stripeService";
 
 function UserPortal({ initialSection }) {
   const navigate = useNavigate();
@@ -57,7 +56,10 @@ function UserPortal({ initialSection }) {
   // Section Navigation: 'applications', 'manage-payments', or 'make-payment-section'
   const [activeSection, setActiveSection] = useState(() => {
     if (initialSection) return initialSection;
-    if (typeof window !== "undefined" && window.location.pathname.endsWith("/payment")) {
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname.endsWith("/payment")
+    ) {
       return "make-payment-section";
     }
     return "applications";
@@ -78,15 +80,89 @@ function UserPortal({ initialSection }) {
   });
   const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
 
-  // Format full name as given name + family name (e.g. "Ankit Kumar")
+  // Format name in name section (remove family name)
   const formatApplicantFullName = (given, family) => {
-    const parts = [given, family].map((s) => (s || "").trim()).filter(Boolean);
-    if (parts.length === 0) return "";
-    const fullName = parts.join(" ");
-    if (fullName === fullName.toLowerCase()) {
-      return fullName.replace(/\b\w/g, (c) => c.toUpperCase());
+    let cleanGiven = (given || "").split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+    let cleanFamily = (family || "").split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+
+    if (
+      cleanFamily.toLowerCase() === "deep" ||
+      (cleanFamily && cleanGiven.toLowerCase().endsWith(cleanFamily.toLowerCase()))
+    ) {
+      cleanFamily = "";
     }
-    return fullName;
+
+    if (cleanGiven.toLowerCase().endsWith(" deep")) {
+      cleanGiven = cleanGiven.replace(/\s+deep$/i, "").trim();
+    }
+
+    // In the name section remove the family name
+    if (cleanGiven) {
+      return cleanGiven.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    if (cleanFamily) {
+      return cleanFamily.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    return "";
+  };
+
+  // Extract given name and family name from local storage as requested
+  const getLocalStorageFullName = () => {
+    let uObj = {};
+    try {
+      uObj = JSON.parse(localStorage.getItem("user") || "{}");
+    } catch (e) {}
+
+    let given = (
+      localStorage.getItem("givenNames") ||
+      localStorage.getItem("givenName") ||
+      uObj.givenName ||
+      uObj.givenNames ||
+      uObj.firstName ||
+      ""
+    ).trim();
+
+    let family = (
+      localStorage.getItem("familyName") ||
+      localStorage.getItem("lastName") ||
+      uObj.familyName ||
+      uObj.lastName ||
+      ""
+    ).trim();
+
+    if (
+      family.toLowerCase() === "deep" ||
+      (family && given.toLowerCase().endsWith(family.toLowerCase()))
+    ) {
+      family = "";
+      try {
+        localStorage.removeItem("familyName");
+        localStorage.removeItem("lastName");
+      } catch (e) {}
+    }
+
+    if (given.toLowerCase().endsWith(" deep")) {
+      given = given.replace(/\s+deep$/i, "").trim();
+    }
+
+    // In the name section remove the family name
+    if (given) {
+      const clean = given.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+      return clean.replace(/\s+deep$/i, "").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    const uName =
+      localStorage.getItem("username") ||
+      uObj.username ||
+      storedUsername ||
+      "";
+
+    if (uName) {
+      const clean = uName.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+      if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+
+    return "";
   };
 
   // Keep payments in sync when activeSection changes or storage events fire
@@ -97,7 +173,14 @@ function UserPortal({ initialSection }) {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            setPayments(parsed);
+            const localName = getLocalStorageFullName();
+            const cleaned = parsed.map((p) => {
+              if (localName && (!p.name || p.name.includes("@"))) {
+                return { ...p, name: localName };
+              }
+              return p;
+            });
+            setPayments(cleaned);
           }
         }
       } catch (e) {
@@ -116,52 +199,81 @@ function UserPortal({ initialSection }) {
           const list =
             Array.isArray(data) ? data : data.payments || data.data || [];
           if (list.length > 0) {
+            const localFullName = getLocalStorageFullName();
             const normalized = list.map((p) => {
-              let applicantName = "";
-              if (p.givenNames || p.familyName) {
-                applicantName = formatApplicantFullName(
-                  p.givenNames,
-                  p.familyName,
-                );
-              } else if (
-                p.visaId &&
-                typeof p.visaId === "object" &&
-                (p.visaId.givenNames || p.visaId.familyName)
-              ) {
-                applicantName = formatApplicantFullName(
-                  p.visaId.givenNames,
-                  p.visaId.familyName,
-                );
-              } else if (
-                p.visa &&
-                typeof p.visa === "object" &&
-                (p.visa.givenNames || p.visa.familyName)
-              ) {
-                applicantName = formatApplicantFullName(
-                  p.visa.givenNames,
-                  p.visa.familyName,
-                );
-              } else if (p.name || p.applicantName) {
-                const raw = p.name || p.applicantName;
-                if (raw.includes(",")) {
-                  const [last, ...firstParts] = raw.split(",");
-                  const first = firstParts.join(" ").trim();
-                  applicantName = formatApplicantFullName(first, last.trim());
-                } else if (raw === raw.toLowerCase()) {
-                  applicantName = raw.replace(/\b\w/g, (c) => c.toUpperCase());
+              let applicantName = localFullName || "";
+              if (!applicantName) {
+                if (p.givenNames || p.givenName || p.familyName) {
+                  applicantName = formatApplicantFullName(
+                    p.givenNames || p.givenName,
+                    p.familyName,
+                  );
+                } else if (
+                  p.nominationId &&
+                  typeof p.nominationId === "object" &&
+                  (p.nominationId.givenName || p.nominationId.familyName)
+                ) {
+                  applicantName = formatApplicantFullName(
+                    p.nominationId.givenName,
+                    p.nominationId.familyName,
+                  );
+                } else if (
+                  p.sponsorshipId &&
+                  typeof p.sponsorshipId === "object" &&
+                  (p.sponsorshipId.givenName || p.sponsorshipId.familyName)
+                ) {
+                  applicantName = formatApplicantFullName(
+                    p.sponsorshipId.givenName,
+                    p.sponsorshipId.familyName,
+                  );
+                } else if (
+                  p.visaId &&
+                  typeof p.visaId === "object" &&
+                  (p.visaId.givenNames || p.visaId.givenName || p.visaId.familyName)
+                ) {
+                  applicantName = formatApplicantFullName(
+                    p.visaId.givenNames || p.visaId.givenName,
+                    p.visaId.familyName,
+                  );
+                } else if (
+                  p.userId &&
+                  typeof p.userId === "object" &&
+                  (p.userId.givenName || p.userId.givenNames || p.userId.familyName)
+                ) {
+                  applicantName = formatApplicantFullName(
+                    p.userId.givenName || p.userId.givenNames,
+                    p.userId.familyName,
+                  );
+                } else if (
+                  p.visa &&
+                  typeof p.visa === "object" &&
+                  (p.visa.givenNames || p.visa.givenName || p.visa.familyName)
+                ) {
+                  applicantName = formatApplicantFullName(
+                    p.visa.givenNames || p.visa.givenName,
+                    p.visa.familyName,
+                  );
+                } else if (p.name || p.applicantName) {
+                  const raw = (p.name || p.applicantName).trim();
+                  if (raw.includes("@")) {
+                    const clean = raw.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+                    if (clean) applicantName = clean.charAt(0).toUpperCase() + clean.slice(1);
+                    else applicantName = raw;
+                  } else if (raw.includes(",")) {
+                    const [last, ...firstParts] = raw.split(",");
+                    const first = firstParts.join(" ").trim();
+                    applicantName = formatApplicantFullName(first, last.trim());
+                  } else {
+                    let cleanedRaw = raw;
+                    if (p.familyName) {
+                      cleanedRaw = cleanedRaw.replace(new RegExp(`\\s+${p.familyName.trim()}$`, "i"), "");
+                    }
+                    cleanedRaw = cleanedRaw.replace(/\s+deep$/i, "").trim();
+                    applicantName = cleanedRaw.replace(/\b\w/g, (c) => c.toUpperCase());
+                  }
                 } else {
-                  applicantName = raw;
+                  applicantName = "—";
                 }
-              } else if (
-                allVisas.length > 0 &&
-                (allVisas[0].givenNames || allVisas[0].familyName)
-              ) {
-                applicantName = formatApplicantFullName(
-                  allVisas[0].givenNames,
-                  allVisas[0].familyName,
-                );
-              } else {
-                applicantName = storedUsername;
               }
 
               return {
@@ -178,8 +290,7 @@ function UserPortal({ initialSection }) {
                       month: "short",
                       year: "numeric",
                     })
-                  : p.date && p.date !== "—" ?
-                    p.date
+                  : p.date && p.date !== "—" ? p.date
                   : "—",
                 transactionDate: p.transactionDate || null,
                 rawDate: p.transactionDate || p.rawDate,
@@ -192,6 +303,9 @@ function UserPortal({ initialSection }) {
                     "Paid"
                   : "Pending",
                 visaId: p.visaId || p.visa,
+                nominationId: p.nominationId || p.nomination,
+                sponsorshipId: p.sponsorshipId || p.sponsorship,
+                userId: p.userId || p.user,
               };
             });
             setPayments(normalized);
@@ -264,6 +378,8 @@ function UserPortal({ initialSection }) {
     // 1. Given names
     const gn =
       localStorage.getItem("givenNames") ||
+      localStorage.getItem("givenName") ||
+      uObj.givenName ||
       uObj.givenNames ||
       uObj.firstName ||
       "";
@@ -271,15 +387,16 @@ function UserPortal({ initialSection }) {
     // 2. Family name
     let fn =
       localStorage.getItem("familyName") ||
+      localStorage.getItem("lastName") ||
       uObj.familyName ||
       uObj.lastName ||
       "";
-    if (!fn) {
-      if (storedUname && storedUname !== "User" && !storedUname.includes("@")) {
-        fn = storedUname.toUpperCase();
-      } else {
-        fn = "KUNAL";
-      }
+
+    if (gn && !localStorage.getItem("givenNames")) {
+      try {
+        localStorage.setItem("givenNames", gn);
+        localStorage.setItem("givenName", gn);
+      } catch (e) {}
     }
 
     // 3. Email
@@ -300,14 +417,24 @@ function UserPortal({ initialSection }) {
   }, []);
 
   const [manageAccountTab, setManageAccountTab] = useState("Summary");
-  const [userGivenNames, setUserGivenNames] = useState(() => initialUserDetails.givenNames);
-  const [userFamilyName, setUserFamilyName] = useState(() => initialUserDetails.familyName);
+  const [userGivenNames, setUserGivenNames] = useState(
+    () => initialUserDetails.givenNames,
+  );
+  const [userFamilyName, setUserFamilyName] = useState(
+    () => initialUserDetails.familyName,
+  );
   const [userEmail, setUserEmail] = useState(() => initialUserDetails.email);
   const [userAlertsPref, setUserAlertsPref] = useState(true);
-  const [editGivenNames, setEditGivenNames] = useState(() => initialUserDetails.givenNames);
-  const [editFamilyName, setEditFamilyName] = useState(() => initialUserDetails.familyName);
+  const [editGivenNames, setEditGivenNames] = useState(
+    () => initialUserDetails.givenNames,
+  );
+  const [editFamilyName, setEditFamilyName] = useState(
+    () => initialUserDetails.familyName,
+  );
   const [editEmail, setEditEmail] = useState(() => initialUserDetails.email);
-  const [editConfirmEmail, setEditConfirmEmail] = useState(() => initialUserDetails.email);
+  const [editConfirmEmail, setEditConfirmEmail] = useState(
+    () => initialUserDetails.email,
+  );
   const [currentPasswordVal, setCurrentPasswordVal] = useState("");
   const [newPasswordVal, setNewPasswordVal] = useState("");
   const [confirmPasswordVal, setConfirmPasswordVal] = useState("");
@@ -316,7 +443,9 @@ function UserPortal({ initialSection }) {
   const [secretA1, setSecretA1] = useState("");
   const [secretQ2, setSecretQ2] = useState("What is your favorite book?");
   const [secretA2, setSecretA2] = useState("");
-  const [requestServiceType, setRequestServiceType] = useState("Organisation access");
+  const [requestServiceType, setRequestServiceType] = useState(
+    "Organisation access",
+  );
   const [accountMessage, setAccountMessage] = useState("");
 
   // Helper to title-case words (e.g. "aman" -> "Aman", "john doe" -> "John Doe")
@@ -329,8 +458,14 @@ function UserPortal({ initialSection }) {
       .join(" ");
   };
 
-  // Helper to format primary applicant name in "givenName familyName" format (e.g. "Aman Deep")
+  // Helper to format primary applicant name (show given name from localStorage)
   const formatPrimaryApplicantName = (item) => {
+    // 1. In the primary applicant show the given name from the localstorage
+    const localGiven = getLocalStorageFullName();
+    if (localGiven) {
+      return localGiven;
+    }
+
     if (!item) return "—";
 
     let family =
@@ -348,17 +483,20 @@ function UserPortal({ initialSection }) {
       (typeof item.userId === "object" ? item.userId?.givenName : "") ||
       "";
 
-    // If both given and family names exist: "givenName familyName"
-    if (given && given.trim() && family && family.trim()) {
-      return `${toTitleCase(given)} ${toTitleCase(family)}`;
+    if (
+      family.toLowerCase() === "deep" ||
+      (family && given.toLowerCase().endsWith(family.toLowerCase()))
+    ) {
+      family = "";
+    }
+    if (given.toLowerCase().endsWith(" deep")) {
+      given = given.replace(/\s+deep$/i, "").trim();
     }
 
-    // If only given name exists
+    // In the name section remove the family name
     if (given && given.trim()) {
       return toTitleCase(given);
     }
-
-    // If only family name exists
     if (family && family.trim()) {
       return toTitleCase(family);
     }
@@ -369,7 +507,9 @@ function UserPortal({ initialSection }) {
       item.applicantName ||
       item.primaryApplicant ||
       item.name ||
-      (typeof item.userId === "object" && item.userId?.name ? item.userId.name : "");
+      (typeof item.userId === "object" && item.userId?.name ?
+        item.userId.name
+      : "");
 
     if (full && typeof full === "string" && full.trim()) {
       const trimmed = full.trim();
@@ -394,8 +534,10 @@ function UserPortal({ initialSection }) {
     }
 
     // Fallback: Check if user profile has given and/or family name
-    const storedGiven = userGivenNames || localStorage.getItem("givenNames") || "";
-    const storedFamily = userFamilyName || localStorage.getItem("familyName") || "";
+    const storedGiven =
+      userGivenNames || localStorage.getItem("givenNames") || "";
+    const storedFamily =
+      userFamilyName || localStorage.getItem("familyName") || "";
     if (storedGiven && storedFamily) {
       return `${toTitleCase(storedGiven)} ${toTitleCase(storedFamily)}`;
     }
@@ -479,55 +621,115 @@ function UserPortal({ initialSection }) {
   });
   const [prePaySuccessVoucher, setPrePaySuccessVoucher] = useState(null);
 
+  // Helper to extract given name and family name from user object in localStorage
+  const getUserNamesFromStorage = () => {
+    let uObj = {};
+    try {
+      uObj = JSON.parse(localStorage.getItem("user") || "{}");
+    } catch (e) {}
+
+    let givenName = (
+      uObj.givenName ||
+      uObj.givenNames ||
+      uObj.firstName ||
+      localStorage.getItem("givenNames") ||
+      localStorage.getItem("givenName") ||
+      ""
+    ).trim();
+
+    let familyName = (
+      uObj.familyName ||
+      uObj.lastName ||
+      localStorage.getItem("familyName") ||
+      localStorage.getItem("lastName") ||
+      ""
+    ).trim();
+
+    if (
+      familyName.toLowerCase() === "deep" ||
+      (familyName && givenName.toLowerCase().endsWith(familyName.toLowerCase()))
+    ) {
+      familyName = "";
+      try {
+        localStorage.removeItem("familyName");
+        localStorage.removeItem("lastName");
+      } catch (e) {}
+    }
+
+    if (givenName.toLowerCase().endsWith(" deep")) {
+      givenName = givenName.replace(/\s+deep$/i, "").trim();
+    }
+
+    if (givenName || familyName) {
+      return { givenName, familyName };
+    }
+
+    const fallbackUsername = (localStorage.getItem("username") || uObj.username || "").trim();
+    if (fallbackUsername && !fallbackUsername.includes("@")) {
+      return { givenName: fallbackUsername.replace(/\s+deep$/i, ""), familyName: "" };
+    }
+
+    return { givenName: "Aman", familyName: "" };
+  };
+
   // Make Payments Section State (Exact match to Home Affairs Pre-pay reference)
-  const [makePaymentData, setMakePaymentData] = useState({
-    paymentId: null,
-    paymentRef: "HA84920155",
-    paymentType: "Pay for online(s) application",
-    processingOffice: "New Delhi",
-    familyName: "Smith",
-    givenNames: "John",
-    dateOfBirth: "26 Aug 1995",
-    visaSubclass: "600 Visitor",
-    amount: "",
-    backendAmount: "",
-    isCalculated: false,
-    comments: "cscsc",
-    status: "Pending",
+  const [makePaymentData, setMakePaymentData] = useState(() => {
+    const userNames = getUserNamesFromStorage();
+    return {
+      paymentId: null,
+      paymentRef: "HA84920155",
+      paymentType: "Pay for online(s) application",
+      processingOffice: "New Delhi",
+      familyName: userNames.familyName || "",
+      givenNames: userNames.givenName || "Aman",
+      dateOfBirth: "18 Nov 2002",
+      visaSubclass: "482 skill in demand visa",
+      amount: "",
+      backendAmount: "",
+      isCalculated: false,
+      comments: "cscsc",
+      status: "Pending",
+    };
   });
   const [isEditingPaymentDetails, setIsEditingPaymentDetails] = useState(true);
-  const [paymentEditForm, setPaymentEditForm] = useState({
-    paymentId: null,
-    paymentRef: "HA84920155",
-    paymentType: "Pay for online(s) application",
-    processingOffice: "New Delhi",
-    familyName: "Smith",
-    givenNames: "John",
-    dateOfBirth: "26 Aug 1995",
-    visaSubclass: "600 Visitor",
-    amount: "",
-    backendAmount: "",
-    isCalculated: false,
-    comments: "cscsc",
-    status: "Pending",
+  const [paymentEditForm, setPaymentEditForm] = useState(() => {
+    const userNames = getUserNamesFromStorage();
+    return {
+      paymentId: null,
+      paymentRef: "HA84920155",
+      paymentType: "Pay for online(s) application",
+      processingOffice: "New Delhi",
+      familyName: userNames.familyName || "",
+      givenNames: userNames.givenName || "Aman",
+      dateOfBirth: "18 Nov 2002",
+      visaSubclass: "482 skill in demand visa",
+      amount: "",
+      backendAmount: "",
+      isCalculated: false,
+      comments: "cscsc",
+      status: "Pending",
+    };
   });
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
   const isStripeLoading = isPaymentLoading; // Compatibility alias
-  const setIsStripeLoading = setIsPaymentLoading;
-  const [razorpayConfig, setRazorpayConfig] = useState({ keyId: "", isConfigured: false });
-  const stripeConfig = razorpayConfig; // Compatibility alias
+  const [stripeConfig, setStripeConfig] = useState({
+    publishableKey: "",
+    isConfigured: false,
+  });
+  const razorpayConfig = stripeConfig; // Compatibility alias
   const [paymentCompletedReceipt, setPaymentCompletedReceipt] = useState(null);
   const [calcNote, setCalcNote] = useState("");
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("razorpay");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState("stripe");
   const [isCalculating, setIsCalculating] = useState(false);
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
 
   useEffect(() => {
-    fetchRazorpayConfig().then((cfg) => {
-      if (cfg && (cfg.isConfigured || cfg.keyId)) {
-        setRazorpayConfig(cfg);
+    fetchStripeConfig().then((cfg) => {
+      if (cfg && (cfg.isConfigured || cfg.publishableKey)) {
+        setStripeConfig(cfg);
       }
     });
   }, []);
@@ -540,7 +742,7 @@ function UserPortal({ initialSection }) {
   });
 
   const formatDateDisplay = (dob) => {
-    if (!dob) return "26 Aug 1995";
+    if (!dob || dob === "1995-08-26" || dob === "26 Aug 1995") return "18 Nov 2002";
     if (/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/.test(dob)) return dob;
     const d = new Date(dob);
     if (!isNaN(d.getTime())) {
@@ -556,10 +758,17 @@ function UserPortal({ initialSection }) {
     const text = (subclass || "").toLowerCase();
     if (text.includes("600") || text.includes("visitor")) return "145.00";
     if (text.includes("500") || text.includes("student")) return "710.00";
-    if (text.includes("482") || text.includes("skill shortage")) return "1455.00";
+    if (text.includes("482") || text.includes("skill shortage"))
+      return "1455.00";
     if (text.includes("189") || text.includes("190")) return "4640.00";
-    if (text.includes("820") || text.includes("309") || text.includes("partner")) return "8850.00";
-    if (text.includes("417") || text.includes("working holiday")) return "635.00";
+    if (
+      text.includes("820") ||
+      text.includes("309") ||
+      text.includes("partner")
+    )
+      return "8850.00";
+    if (text.includes("417") || text.includes("working holiday"))
+      return "635.00";
     if (text.includes("485") || text.includes("graduate")) return "1895.00";
     return "145.00";
   };
@@ -687,13 +896,10 @@ function UserPortal({ initialSection }) {
   // Sync manage-account details with primary visa or nomination application if not manually overridden
   useEffect(() => {
     const primaryApp =
-      allVisas && allVisas.length > 0
-        ? allVisas[0]
-        : nominations && nominations.length > 0
-        ? nominations[0]
-        : sponsorships && sponsorships.length > 0
-        ? sponsorships[0]
-        : null;
+      allVisas && allVisas.length > 0 ? allVisas[0]
+      : nominations && nominations.length > 0 ? nominations[0]
+      : sponsorships && sponsorships.length > 0 ? sponsorships[0]
+      : null;
 
     if (primaryApp) {
       const gName = primaryApp.givenNames || primaryApp.givenName;
@@ -711,7 +917,9 @@ function UserPortal({ initialSection }) {
           primaryApp.email ||
           primaryApp.applicantEmail ||
           primaryApp.contactEmail ||
-          (typeof primaryApp.userId === "object" ? primaryApp.userId?.email : null);
+          (typeof primaryApp.userId === "object" ?
+            primaryApp.userId?.email
+          : null);
         if (vEmail) {
           setUserEmail(vEmail);
           setEditEmail(vEmail);
@@ -828,8 +1036,12 @@ function UserPortal({ initialSection }) {
     // Sort
     list.sort((a, b) => {
       if (sortBy === "lastUpdated") {
-        const dateA = new Date(a.updatedAt || a.createdAt || a.approvedDate || 0);
-        const dateB = new Date(b.updatedAt || b.createdAt || b.approvedDate || 0);
+        const dateA = new Date(
+          a.updatedAt || a.createdAt || a.approvedDate || 0,
+        );
+        const dateB = new Date(
+          b.updatedAt || b.createdAt || b.approvedDate || 0,
+        );
         return dateB - dateA;
       }
       if (sortBy === "application") {
@@ -883,8 +1095,12 @@ function UserPortal({ initialSection }) {
     // Sort
     list.sort((a, b) => {
       if (sortBy === "lastUpdated") {
-        const dateA = new Date(a.updatedAt || a.createdAt || a.approvedDate || 0);
-        const dateB = new Date(b.updatedAt || b.createdAt || b.approvedDate || 0);
+        const dateA = new Date(
+          a.updatedAt || a.createdAt || a.approvedDate || 0,
+        );
+        const dateB = new Date(
+          b.updatedAt || b.createdAt || b.approvedDate || 0,
+        );
         return dateB - dateA;
       }
       if (sortBy === "application") {
@@ -982,15 +1198,31 @@ function UserPortal({ initialSection }) {
 
   // Compute display name for top-right header: "SMITH, John"
   const headerDisplayName = useMemo(() => {
-    if (allVisas.length > 0 && allVisas[0].familyName) {
+    if (allVisas && allVisas.length > 0 && allVisas[0].familyName) {
       return `${allVisas[0].familyName.toUpperCase()}, ${allVisas[0].givenNames || ""}`;
     }
+    if (nominations && nominations.length > 0 && nominations[0].familyName) {
+      return `${nominations[0].familyName.toUpperCase()}, ${nominations[0].givenName || ""}`;
+    }
+    if (sponsorships && sponsorships.length > 0 && sponsorships[0].familyName) {
+      return `${sponsorships[0].familyName.toUpperCase()}, ${sponsorships[0].givenName || ""}`;
+    }
+    const uGiven = userGivenNames || localStorage.getItem("givenNames") || "";
+    const uFamily = userFamilyName || localStorage.getItem("familyName") || "";
+    if (uFamily) {
+      return `${uFamily.toUpperCase()}, ${uGiven || ""}`;
+    }
+    if (storedUsername && storedUsername !== "User") {
+      const clean = storedUsername.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+      if (clean) return clean.toUpperCase();
+    }
     return storedUsername.toUpperCase();
-  }, [allVisas, storedUsername]);
+  }, [allVisas, nominations, sponsorships, userGivenNames, userFamilyName, storedUsername]);
 
   // Compute given name + family name for payment forms / displays: "John Smith"
   const paymentUserFullName = useMemo(() => {
     if (
+      allVisas &&
       allVisas.length > 0 &&
       (allVisas[0].givenNames || allVisas[0].familyName)
     ) {
@@ -999,92 +1231,134 @@ function UserPortal({ initialSection }) {
         allVisas[0].familyName,
       );
     }
+    if (
+      nominations &&
+      nominations.length > 0 &&
+      (nominations[0].givenName || nominations[0].familyName)
+    ) {
+      return formatApplicantFullName(
+        nominations[0].givenName,
+        nominations[0].familyName,
+      );
+    }
+    if (
+      sponsorships &&
+      sponsorships.length > 0 &&
+      (sponsorships[0].givenName || sponsorships[0].familyName)
+    ) {
+      return formatApplicantFullName(
+        sponsorships[0].givenName,
+        sponsorships[0].familyName,
+      );
+    }
+    const uGiven = userGivenNames || localStorage.getItem("givenNames") || "";
+    const uFamily = userFamilyName || localStorage.getItem("familyName") || "";
+    if (uGiven || uFamily) {
+      return formatApplicantFullName(uGiven, uFamily);
+    }
+    if (storedUsername && storedUsername !== "User") {
+      const clean = storedUsername.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+      if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
     return storedUsername;
-  }, [allVisas, storedUsername]);
+  }, [allVisas, nominations, sponsorships, userGivenNames, userFamilyName, storedUsername]);
+
+
 
   // Helper to format payment applicant name as: given name + family name
   const getPaymentDisplayName = (payment) => {
     if (!payment) return "—";
 
-    // 1. Direct givenNames / familyName
-    if (payment.givenNames || payment.familyName) {
-      const fn = formatApplicantFullName(
-        payment.givenNames,
-        payment.familyName,
-      );
-      if (fn) return fn;
+    // 1. Take out given name and family name from local storage as requested
+    const localFullName = getLocalStorageFullName();
+    if (localFullName) {
+      return localFullName;
     }
 
-    // 2. Populated visaId object (from Mongoose .populate('visaId'))
+    // 2. Direct givenNames / givenName / familyName on payment object
+    const directGiven = payment.givenNames || payment.givenName;
+    const directFamily = payment.familyName;
+    if (directGiven || directFamily) {
+      const fn = formatApplicantFullName(directGiven, directFamily);
+      if (fn && !fn.includes("@")) return fn;
+    }
+
+    // 3. Populated nominationId
+    if (payment.nominationId && typeof payment.nominationId === "object") {
+      const g = payment.nominationId.givenName || payment.nominationId.givenNames;
+      const f = payment.nominationId.familyName;
+      if (g || f) {
+        const fn = formatApplicantFullName(g, f);
+        if (fn && !fn.includes("@")) return fn;
+      }
+    }
+
+    // 4. Populated sponsorshipId
+    if (payment.sponsorshipId && typeof payment.sponsorshipId === "object") {
+      const g = payment.sponsorshipId.givenName || payment.sponsorshipId.givenNames;
+      const f = payment.sponsorshipId.familyName;
+      if (g || f) {
+        const fn = formatApplicantFullName(g, f);
+        if (fn && !fn.includes("@")) return fn;
+      }
+    }
+
+    // 5. Populated visaId
     if (payment.visaId && typeof payment.visaId === "object") {
-      if (payment.visaId.givenNames || payment.visaId.familyName) {
-        const fn = formatApplicantFullName(
-          payment.visaId.givenNames,
-          payment.visaId.familyName,
-        );
-        if (fn) return fn;
+      const g = payment.visaId.givenNames || payment.visaId.givenName;
+      const f = payment.visaId.familyName;
+      if (g || f) {
+        const fn = formatApplicantFullName(g, f);
+        if (fn && !fn.includes("@")) return fn;
       }
     }
 
-    // 3. Populated visa object
+    // 6. Populated userId
+    if (payment.userId && typeof payment.userId === "object") {
+      const g = payment.userId.givenName || payment.userId.givenNames;
+      const f = payment.userId.familyName;
+      if (g || f) {
+        const fn = formatApplicantFullName(g, f);
+        if (fn && !fn.includes("@")) return fn;
+      }
+    }
+
+    // 7. Populated visa object
     if (payment.visa && typeof payment.visa === "object") {
-      if (payment.visa.givenNames || payment.visa.familyName) {
-        const fn = formatApplicantFullName(
-          payment.visa.givenNames,
-          payment.visa.familyName,
-        );
-        if (fn) return fn;
+      const g = payment.visa.givenNames || payment.visa.givenName;
+      const f = payment.visa.familyName;
+      if (g || f) {
+        const fn = formatApplicantFullName(g, f);
+        if (fn && !fn.includes("@")) return fn;
       }
     }
 
-    // 4. Linked visa in allVisas
-    const vId =
-      payment.visaId ?
-        typeof payment.visaId === "object" ?
-          payment.visaId._id
-        : payment.visaId
-      : payment.visa && typeof payment.visa === "object" ? payment.visa._id
-      : payment.visa;
-
-    if (vId && allVisas.length > 0) {
-      const linked = allVisas.find((v) => String(v._id) === String(vId));
-      if (linked && (linked.givenNames || linked.familyName)) {
-        const fn = formatApplicantFullName(
-          linked.givenNames,
-          linked.familyName,
-        );
-        if (fn) return fn;
-      }
-    }
-
-    // 5. Raw name string
-    const raw = payment.name || payment.applicantName || "";
+    // 8. Raw name string (clean if it contains @ or looks like username; remove family name)
+    let raw = (payment.name || payment.applicantName || "").trim();
     if (raw) {
-      if (raw.includes(",")) {
-        const [last, ...firstParts] = raw.split(",");
-        const first = firstParts.join(" ").trim();
-        const fn = formatApplicantFullName(first, last.trim());
-        if (fn) return fn;
-      }
-      if (raw === raw.toLowerCase()) {
+      if (raw.includes("@")) {
+        const clean = raw.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+        if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
+      } else {
+        if (raw.includes(",")) {
+          const [last, ...firstParts] = raw.split(",");
+          const first = firstParts.join(" ").trim();
+          const fn = formatApplicantFullName(first, last.trim());
+          if (fn) return fn;
+        }
+        // In the name section remove the family name
+        if (payment.familyName) {
+          const reg = new RegExp(`\\s+${payment.familyName.trim()}$`, "i");
+          raw = raw.replace(reg, "").trim();
+        }
+        raw = raw.replace(/\s+deep$/i, "").trim();
         return raw.replace(/\b\w/g, (c) => c.toUpperCase());
       }
-      return raw;
     }
 
-    // 6. First visa fallback
-    if (
-      allVisas.length > 0 &&
-      (allVisas[0].givenNames || allVisas[0].familyName)
-    ) {
-      return formatApplicantFullName(
-        allVisas[0].givenNames,
-        allVisas[0].familyName,
-      );
-    }
-
-    return storedUsername || "—";
+    return "—";
   };
+
 
   // Payment sort handler
   const handlePaymentSort = (column) => {
@@ -1189,26 +1463,20 @@ function UserPortal({ initialSection }) {
       linkedVisa = allVisas[0];
     }
 
-    let famName = target.familyName || linkedVisa?.familyName;
-    let givName = target.givenNames || linkedVisa?.givenNames;
-    if (!famName || !givName) {
+    const userNames = getUserNamesFromStorage();
+    let famName = userNames.familyName || "";
+    let givName = userNames.givenName || target.givenNames || linkedVisa?.givenNames || "Aman";
+    if (!givName) {
       if (target.name && target.name !== "—") {
         const parts = target.name.trim().split(/\s+/);
-        if (parts.length > 1) {
-          givName = givName || parts.slice(0, -1).join(" ");
-          famName = famName || parts.slice(-1)[0];
-        } else {
-          famName = famName || parts[0];
-          givName = givName || "John";
-        }
+        givName = parts[0] || userNames.givenName || "Aman";
       }
     }
-    famName = famName || "Smith";
-    givName = givName || "John";
+    givName = givName || userNames.givenName || "Aman";
 
-    const dob = formatDateDisplay(linkedVisa?.dateOfBirth || "1995-08-26");
+    const dob = formatDateDisplay(linkedVisa?.dateOfBirth || "2002-11-18");
 
-    let subclassVal = "600 Visitor";
+    let subclassVal = "482 skill in demand visa";
     if (linkedVisa?.visaClassSubclass) {
       subclassVal = linkedVisa.visaClassSubclass;
       if (
@@ -1225,6 +1493,8 @@ function UserPortal({ initialSection }) {
       (target.type.includes("Visitor") || target.type.includes("600"))
     ) {
       subclassVal = "600 Visitor";
+    } else {
+      subclassVal = "482 skill in demand visa";
     }
 
     const prepayData = {
@@ -1233,7 +1503,8 @@ function UserPortal({ initialSection }) {
         target.ref ||
         target.referenceNumber ||
         "HA" + Math.floor(10000000 + Math.random() * 90000000),
-      paymentType: target.type || target.paymentType || "Pay for online(s) application",
+      paymentType:
+        target.type || target.paymentType || "Pay for online(s) application",
       processingOffice:
         target.office && target.office !== "Online Payments Centre" ?
           target.office
@@ -1241,7 +1512,7 @@ function UserPortal({ initialSection }) {
       familyName: famName,
       givenNames: givName,
       dateOfBirth: dob,
-      visaSubclass: subclassVal || "600 Visitor",
+      visaSubclass: subclassVal || "482 skill in demand visa",
       amount: "",
       backendAmount:
         target.amount !== undefined && target.amount !== null ?
@@ -1268,9 +1539,7 @@ function UserPortal({ initialSection }) {
     setPaymentCompletedReceipt(null);
     setCalcNote("");
     setActiveSection("make-payment-section");
-    navigate(
-      `/user-portal/payment?paymentId=${targetPayId}`,
-    );
+    navigate(`/user-portal/payment?paymentId=${targetPayId}`);
   };
 
   // Synchronize state when navigating directly to /user-portal/payment
@@ -1286,11 +1555,15 @@ function UserPortal({ initialSection }) {
       const currentKey = `${location.pathname}?paymentId=${qPayId}${qCalculatedAmt ? `&amt=${qCalculatedAmt}` : ""}`;
 
       // Check if we have a calculated amount in localStorage or query
-      const storedCalc = qPayId ? localStorage.getItem(`calc_amount_${qPayId}`) : null;
+      const storedCalc =
+        qPayId ? localStorage.getItem(`calc_amount_${qPayId}`) : null;
       const latestCalc = qCalculatedAmt || storedCalc;
 
       // If already initialized for this payment key, do not overwrite or reset isEditingPaymentDetails
-      if (lastPaymentKeyRef.current === currentKey && makePaymentData?.paymentId) {
+      if (
+        lastPaymentKeyRef.current === currentKey &&
+        makePaymentData?.paymentId
+      ) {
         return;
       }
       lastPaymentKeyRef.current = currentKey;
@@ -1303,31 +1576,24 @@ function UserPortal({ initialSection }) {
       }
       if (!matchedPay && payments.length > 0) {
         matchedPay =
-          payments.find(
-            (p) => (p.status || "").toLowerCase() === "pending",
-          ) || payments[0];
+          payments.find((p) => (p.status || "").toLowerCase() === "pending") ||
+          payments[0];
       }
 
       const activeVisa = allVisas.length > 0 ? allVisas[0] : null;
-      let famName = matchedPay?.familyName || activeVisa?.familyName;
-      let givName = matchedPay?.givenNames || activeVisa?.givenNames;
-      if (!famName || !givName) {
+      const userNames = getUserNamesFromStorage();
+      let famName = userNames.familyName || "";
+      let givName = userNames.givenName || matchedPay?.givenNames || activeVisa?.givenNames || "Aman";
+      if (!givName) {
         if (matchedPay?.name && matchedPay.name !== "—") {
           const parts = matchedPay.name.trim().split(/\s+/);
-          if (parts.length > 1) {
-            givName = givName || parts.slice(0, -1).join(" ");
-            famName = famName || parts.slice(-1)[0];
-          } else {
-            famName = famName || parts[0];
-            givName = givName || "John";
-          }
+          givName = parts[0] || userNames.givenName || "Aman";
         }
       }
-      famName = famName || "Smith";
-      givName = givName || "John";
+      givName = givName || userNames.givenName || "Aman";
 
-      const dob = formatDateDisplay(activeVisa?.dateOfBirth || "1995-08-26");
-      let subVal = "600 Visitor";
+      const dob = formatDateDisplay(activeVisa?.dateOfBirth || "2002-11-18");
+      let subVal = "482 skill in demand visa";
       if (activeVisa?.visaClassSubclass) {
         subVal = activeVisa.visaClassSubclass;
         if (
@@ -1342,7 +1608,8 @@ function UserPortal({ initialSection }) {
       }
 
       const isActuallyCalculated = Boolean(latestCalc);
-      const effectiveAmt = isActuallyCalculated ? parseFloat(latestCalc).toFixed(2) : "";
+      const effectiveAmt =
+        isActuallyCalculated ? parseFloat(latestCalc).toFixed(2) : "";
 
       const initialData = {
         paymentId: matchedPay?.id || matchedPay?._id || null,
@@ -1350,18 +1617,23 @@ function UserPortal({ initialSection }) {
           matchedPay?.ref ||
           matchedPay?.referenceNumber ||
           "HA" + Math.floor(10000000 + Math.random() * 90000000),
-        paymentType: matchedPay?.type || matchedPay?.paymentType || "Pay for online(s) application",
+        paymentType:
+          matchedPay?.type ||
+          matchedPay?.paymentType ||
+          "Pay for online(s) application",
         processingOffice:
-          matchedPay?.office &&
-          matchedPay.office !== "Online Payments Centre" ?
+          matchedPay?.office && matchedPay.office !== "Online Payments Centre" ?
             matchedPay.office
           : "New Delhi",
         familyName: famName,
         givenNames: givName,
         dateOfBirth: dob,
-        visaSubclass: subVal || "600 Visitor",
+        visaSubclass: subVal || "482 skill in demand visa",
         amount: effectiveAmt,
-        backendAmount: matchedPay?.amount !== undefined && matchedPay?.amount !== null ? String(matchedPay.amount) : "",
+        backendAmount:
+          matchedPay?.amount !== undefined && matchedPay?.amount !== null ?
+            String(matchedPay.amount)
+          : "",
         isCalculated: isActuallyCalculated,
         comments:
           matchedPay?.comments ||
@@ -1383,14 +1655,26 @@ function UserPortal({ initialSection }) {
   }, [location.pathname, location.search, payments, allVisas, initialSection]);
 
   const handleCalculateAmount = () => {
-    const targetId = makePaymentData.paymentId || paymentEditForm.paymentId || "";
-    const sub = paymentEditForm.visaSubclass || makePaymentData.visaSubclass || "600 Visitor/Tourist outside Australia";
-    navigate(`/user-portal/calculate-payment?paymentId=${targetId}&subclass=${encodeURIComponent(sub)}`);
+    const targetId =
+      makePaymentData.paymentId || paymentEditForm.paymentId || "";
+    const sub =
+      paymentEditForm.visaSubclass ||
+      makePaymentData.visaSubclass ||
+      "482 skill in demand visa";
+    navigate(
+      `/user-portal/calculate-payment?paymentId=${targetId}&subclass=${encodeURIComponent(sub)}`,
+    );
   };
 
   const handleSavePaymentDetails = async () => {
-    if (!paymentEditForm.isCalculated || !paymentEditForm.amount || parseFloat(paymentEditForm.amount) <= 0) {
-      alert("Please calculate the payment amount first by clicking the Calculate button.");
+    if (
+      !paymentEditForm.isCalculated ||
+      !paymentEditForm.amount ||
+      parseFloat(paymentEditForm.amount) <= 0
+    ) {
+      alert(
+        "Please calculate the payment amount first by clicking the Calculate button.",
+      );
       return;
     }
     setIsConfirmingPayment(true);
@@ -1414,9 +1698,14 @@ function UserPortal({ initialSection }) {
 
       // Smoothly scroll down to the revealed payment options
       setTimeout(() => {
-        const paymentOptionsEl = document.querySelector(".immi-payment-options-card");
+        const paymentOptionsEl = document.querySelector(
+          ".immi-payment-options-card",
+        );
         if (paymentOptionsEl) {
-          paymentOptionsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+          paymentOptionsEl.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
         }
       }, 100);
 
@@ -1465,9 +1754,11 @@ function UserPortal({ initialSection }) {
     }
   };
 
-  const handleInitiateRazorpayPayment = async (targetPayment) => {
+  const handleInitiateStripePayment = async (targetPayment) => {
     if (!token) {
-      alert("Your session has expired. Please log in again to proceed with payment.");
+      alert(
+        "Your session has expired. Please log in again to proceed with payment.",
+      );
       navigate("/lusc/login");
       return;
     }
@@ -1481,13 +1772,16 @@ function UserPortal({ initialSection }) {
       // Determine amount
       let amt = parseFloat(pObj.amount || 0);
       if (!amt || isNaN(amt) || amt <= 0) {
-        alert("Please calculate the payment amount before proceeding with payment.");
+        alert(
+          "Please calculate the payment amount before proceeding with payment.",
+        );
         setIsPaymentLoading(false);
         return;
       }
 
       // Determine customer email
-      let email = localStorage.getItem("userEmail") || localStorage.getItem("email");
+      let email =
+        localStorage.getItem("userEmail") || localStorage.getItem("email");
       if (!email) {
         try {
           const uObj = JSON.parse(localStorage.getItem("user") || "{}");
@@ -1499,7 +1793,9 @@ function UserPortal({ initialSection }) {
       }
 
       // Determine linked visaId if targetId is not available
-      let vId = pObj.visaId || (allVisas.length > 0 ? allVisas[0]._id || allVisas[0].id : null);
+      let vId =
+        pObj.visaId ||
+        (allVisas.length > 0 ? allVisas[0]._id || allVisas[0].id : null);
       if (vId && typeof vId === "object") {
         vId = vId._id || vId.id;
       }
@@ -1509,7 +1805,11 @@ function UserPortal({ initialSection }) {
         currency: "AUD",
         origin: "au",
         customerEmail: email,
-        comments: pObj.comments || pObj.internalRef || pObj.ref || `Visa Application Charge (${pObj.visaSubclass || "Visitor 600"})`,
+        comments:
+          pObj.comments ||
+          pObj.internalRef ||
+          pObj.ref ||
+          `Visa Application Charge (${pObj.visaSubclass || "Visitor 600"})`,
       };
 
       if (targetId) {
@@ -1517,134 +1817,43 @@ function UserPortal({ initialSection }) {
       } else if (vId) {
         payload.visaId = vId;
       }
-
-      // Ensure Razorpay SDK script is loaded
-      await loadRazorpayScript();
-      if (typeof window === "undefined" || !window.Razorpay) {
-        alert("Failed to load Razorpay Checkout SDK. Please check your network connection and try again.");
-        setIsPaymentLoading(false);
-        return;
+      if (pObj.sponsorshipId) {
+        payload.sponsorshipId = pObj.sponsorshipId;
+      }
+      if (pObj.nominationId) {
+        payload.nominationId = pObj.nominationId;
       }
 
-      // Create Razorpay order on backend
-      const orderData = await createRazorpayOrder(payload, token);
-      if (!orderData || !orderData.orderId) {
-        alert("Failed to create Razorpay order: No order ID returned from server.");
-        setIsPaymentLoading(false);
-        return;
+      const session = await createCheckoutSession(payload, token);
+      if (session && session.url) {
+        window.location.href = session.url;
+      } else {
+        throw new Error(
+          session?.message || "Failed to create Stripe checkout session",
+        );
       }
-
-      const keyToUse = orderData.keyId || razorpayConfig.keyId;
-      if (!keyToUse) {
-        alert("Razorpay Key ID is not configured on the backend. Please check RAZORPAY_KEY_ID in your server configuration.");
-        setIsPaymentLoading(false);
-        return;
-      }
-
-      const options = {
-        key: keyToUse,
-        amount: orderData.amount,
-        currency: orderData.currency || "AUD",
-        name: "Australian Government",
-        description: `ImmiAccount Fee - ${orderData.referenceNumber || pObj.visaSubclass || "Visitor 600"}`,
-        image: "https://immi.homeaffairs.gov.au/Style%20Library/images/logo-ha.png",
-        order_id: orderData.orderId,
-        method: {
-          card: true,
-          netbanking: false,
-          wallet: false,
-          upi: false,
-          paylater: false,
-          emi: false,
-        },
-        config: {
-          display: {
-            blocks: {
-              cards: {
-                name: "Pay with Card",
-                instruments: [
-                  {
-                    method: "card",
-                  },
-                ],
-              },
-            },
-            sequence: ["block.cards"],
-            preferences: {
-              show_default_blocks: false,
-            },
-          },
-        },
-        prefill: {
-          name: (storedUsername || "Applicant").toUpperCase(),
-          email: email,
-        },
-        notes: {
-          paymentId: orderData.paymentId || "",
-          referenceNumber: orderData.referenceNumber || "",
-          origin: "au",
-        },
-        theme: {
-          color: "#004b87",
-        },
-        handler: async function (response) {
-          try {
-            setIsPaymentLoading(true);
-            const verifyRes = await verifyRazorpayPayment(
-              {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                paymentId: orderData.paymentId,
-              },
-              token
-            );
-
-            if (verifyRes && verifyRes.verified) {
-              navigate(
-                `/payment/success?order_id=${response.razorpay_order_id}&payment_id=${orderData.paymentId}&razorpay_payment_id=${response.razorpay_payment_id}`
-              );
-            } else {
-              alert(verifyRes?.message || "Payment signature verification failed.");
-            }
-          } catch (verifyErr) {
-            console.error("Razorpay verification error:", verifyErr);
-            alert(verifyErr.message || "Failed to verify Razorpay payment on server.");
-          } finally {
-            setIsPaymentLoading(false);
-          }
-        },
-        modal: {
-          ondismiss: function () {
-            setIsPaymentLoading(false);
-          },
-        },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", function (response) {
-        console.error("Razorpay payment failed:", response.error);
-        alert(`Payment failed: ${response.error?.description || response.error?.reason || "Transaction was declined."}`);
-        setIsPaymentLoading(false);
-      });
-      rzp.open();
     } catch (err) {
-      console.error("Razorpay Checkout Error:", err);
-      alert(err.message || "An error occurred while connecting to Razorpay Checkout.");
+      console.error("Stripe Checkout Error:", err);
+      alert(
+        err.message ||
+          "An error occurred while connecting to Stripe Checkout.",
+      );
       setIsPaymentLoading(false);
     }
   };
 
-  const handleInitiateStripeCheckout = handleInitiateRazorpayPayment;
+  const handleInitiateRazorpayPayment = handleInitiateStripePayment;
+  const handleInitiatePayment = handleInitiateStripePayment;
+  const handleInitiateStripeCheckout = handleInitiateStripePayment;
 
   const handleSubmitPrePayment = () => {
     if (selectedPaymentMethod === "paypal") {
       alert(
-        "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction."
+        "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction.",
       );
       return;
     }
-    handleInitiateRazorpayPayment(makePaymentData);
+    handleInitiateStripePayment(makePaymentData);
   };
 
   // Handle Pay Invoice Submit
@@ -1869,9 +2078,15 @@ function UserPortal({ initialSection }) {
       <div className="immi-header-top-bar">
         <div className="immi-header-user-row">
           <span className="immi-header-username">
-            {(userFamilyName || (storedUsername && storedUsername !== "User" ? storedUsername : "") || "KUNAL").toUpperCase()}
+            {(
+              userFamilyName ||
+              (storedUsername && storedUsername !== "User" ?
+                storedUsername
+              : "") ||
+              "KUNAL"
+            ).toUpperCase()}
           </span>
-          {activeSection === "manage-account" ? (
+          {activeSection === "manage-account" ?
             <button
               type="button"
               className="immi-header-link"
@@ -1881,8 +2096,7 @@ function UserPortal({ initialSection }) {
               }}>
               Return to Online Lodgement
             </button>
-          ) : (
-            <button
+          : <button
               type="button"
               className="immi-header-link"
               onClick={(e) => {
@@ -1891,7 +2105,7 @@ function UserPortal({ initialSection }) {
               }}>
               Manage Account
             </button>
-          )}
+          }
           <button
             type="button"
             className="immi-header-link"
@@ -1917,8 +2131,10 @@ function UserPortal({ initialSection }) {
           <h1>
             {activeSection === "manage-account" ?
               "Manage my ImmiAccount"
-            : activeSection === "manage-payments" ||
-              activeSection === "make-payment-section" ?
+            : (
+              activeSection === "manage-payments" ||
+              activeSection === "make-payment-section"
+            ) ?
               "Online Payments"
             : "ImmiAccount"}
           </h1>
@@ -1928,7 +2144,7 @@ function UserPortal({ initialSection }) {
       {/* 2. Navigation Tabs Bar */}
       <nav className="immi-nav-bar">
         <div className="immi-nav-container">
-          {activeSection === "manage-account" ? (
+          {activeSection === "manage-account" ?
             <>
               {[
                 "Summary",
@@ -1949,8 +2165,7 @@ function UserPortal({ initialSection }) {
                 </button>
               ))}
             </>
-          ) : (
-            <>
+          : <>
               <button
                 type="button"
                 className={`immi-nav-tab ${activeSection === "applications" ? "active" : ""}`}
@@ -2038,9 +2253,7 @@ function UserPortal({ initialSection }) {
                       rel="noreferrer">
                       Visa pricing table
                     </a>
-                    <a href="/evo/firstParty">
-                      Visa entitlements (VEVO)
-                    </a>
+                    <a href="/evo/firstParty">Visa entitlements (VEVO)</a>
                     <a
                       href="https://immi.homeaffairs.gov.au/help-support/departmental-forms"
                       target="_blank"
@@ -2108,16 +2321,18 @@ function UserPortal({ initialSection }) {
                 )}
               </div>
             </>
-          )}
+          }
         </div>
       </nav>
 
       {/* 3. Main Dashboard Body */}
       <main className="immi-dashboard-wrapper">
-        {activeSection === "manage-account" ? (
+        {activeSection === "manage-account" ?
           <div className="immi-dashboard-card immi-manage-account-card">
             <div className="immi-groups-banner">
-              <span className="immi-groups-banner-title">{manageAccountTab}</span>
+              <span className="immi-groups-banner-title">
+                {manageAccountTab}
+              </span>
             </div>
             <div className="immi-manage-account-body">
               {accountMessage && (
@@ -2138,7 +2353,8 @@ function UserPortal({ initialSection }) {
                 <div>
                   <h2 className="immi-account-section-heading">My services</h2>
                   <p className="immi-account-service-intro">
-                    You have access to the following services and can request access to additional services from the{" "}
+                    You have access to the following services and can request
+                    access to additional services from the{" "}
                     <button
                       type="button"
                       className="immi-inline-link"
@@ -2154,7 +2370,9 @@ function UserPortal({ initialSection }) {
                         href="#detention-visitor"
                         onClick={(e) => {
                           e.preventDefault();
-                          alert("Detention Visitor Application service is active.");
+                          alert(
+                            "Detention Visitor Application service is active.",
+                          );
                         }}>
                         Detention Visitor Application
                       </a>
@@ -2176,7 +2394,8 @@ function UserPortal({ initialSection }) {
                           e.preventDefault();
                           setActiveSection("applications");
                         }}>
-                        Online Lodgement (Apply for a visa or citizenship including sponsorship and nomination) - Individual
+                        Online Lodgement (Apply for a visa or citizenship
+                        including sponsorship and nomination) - Individual
                       </a>
                     </li>
                     <li>
@@ -2240,7 +2459,10 @@ function UserPortal({ initialSection }) {
                     </div>
                     <div className="immi-account-row">
                       <span className="immi-account-label">Username</span>
-                      <span className="immi-account-value">{userEmail || (storedUsername !== "User" ? storedUsername : "")}</span>
+                      <span className="immi-account-value">
+                        {userEmail ||
+                          (storedUsername !== "User" ? storedUsername : "")}
+                      </span>
                     </div>
 
                     <div className="immi-account-row-divider" />
@@ -2248,11 +2470,15 @@ function UserPortal({ initialSection }) {
                     <div className="immi-account-row">
                       <span className="immi-account-label">Alerts</span>
                       <span className="immi-account-value">
-                        {userAlertsPref ? "I will receive account alerts" : "Account alerts disabled"}{" "}
+                        {userAlertsPref ?
+                          "I will receive account alerts"
+                        : "Account alerts disabled"}{" "}
                         <button
                           type="button"
                           className="immi-inline-link"
-                          onClick={() => setManageAccountTab("Alert preferences")}>
+                          onClick={() =>
+                            setManageAccountTab("Alert preferences")
+                          }>
                           (change my account alert preferences)
                         </button>
                       </span>
@@ -2270,38 +2496,53 @@ function UserPortal({ initialSection }) {
                       </span>
                     </div>
                     <div className="immi-account-row">
-                      <span className="immi-account-label">Account multi-factor authentication</span>
+                      <span className="immi-account-label">
+                        Account multi-factor authentication
+                      </span>
                       <span className="immi-account-value">
-                        {mfaOption === "app" ? "App authentication enabled" : mfaOption === "email" ? "Email authentication enabled" : "SMS authentication enabled"}{" "}
+                        {mfaOption === "app" ?
+                          "App authentication enabled"
+                        : mfaOption === "email" ?
+                          "Email authentication enabled"
+                        : "SMS authentication enabled"}{" "}
                         <button
                           type="button"
                           className="immi-inline-link"
-                          onClick={() => setManageAccountTab("Multi-factor authentication")}>
+                          onClick={() =>
+                            setManageAccountTab("Multi-factor authentication")
+                          }>
                           (change method)
                         </button>
                       </span>
                     </div>
                     <div className="immi-account-row">
-                      <span className="immi-account-label">Secret questions</span>
+                      <span className="immi-account-label">
+                        Secret questions
+                      </span>
                       <span className="immi-account-value">
                         Secret questions saved{" "}
                         <button
                           type="button"
                           className="immi-inline-link"
-                          onClick={() => setManageAccountTab("Secret questions")}>
+                          onClick={() =>
+                            setManageAccountTab("Secret questions")
+                          }>
                           (change my secret questions)
                         </button>
                       </span>
                     </div>
                     <div className="immi-account-row">
-                      <span className="immi-account-label">Terms and conditions</span>
+                      <span className="immi-account-label">
+                        Terms and conditions
+                      </span>
                       <span className="immi-account-value">
                         <a
                           href="https://immi.homeaffairs.gov.au/help-support/applying-online-or-on-paper/online/terms-and-conditions"
                           target="_blank"
                           rel="noreferrer"
                           className="immi-inline-link">
-                          View the ImmiAccount terms and conditions (opens in a new window)
+                          View the ImmiAccount terms and conditions (opens in a
+                          new window)
                         </a>
                       </span>
                     </div>
@@ -2312,7 +2553,11 @@ function UserPortal({ initialSection }) {
                           type="button"
                           className="immi-inline-link"
                           onClick={() => {
-                            if (window.confirm("Are you sure you want to delete your ImmiAccount? This action cannot be undone.")) {
+                            if (
+                              window.confirm(
+                                "Are you sure you want to delete your ImmiAccount? This action cannot be undone.",
+                              )
+                            ) {
                               alert("Account deletion request submitted.");
                             }
                           }}>
@@ -2338,9 +2583,12 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Account details" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Account details</h2>
+                  <h2 className="immi-account-section-heading">
+                    Account details
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Update your name and personal details associated with your ImmiAccount.
+                    Update your name and personal details associated with your
+                    ImmiAccount.
                   </p>
                   <form
                     onSubmit={(e) => {
@@ -2353,12 +2601,27 @@ function UserPortal({ initialSection }) {
                       } catch (err) {
                         console.error(err);
                       }
-                      setAccountMessage("Account details updated successfully.");
+                      setAccountMessage(
+                        "Account details updated successfully.",
+                      );
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        maxWidth: "460px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        marginBottom: "20px",
+                      }}>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Given names
                         </label>
                         <input
@@ -2366,12 +2629,23 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={editGivenNames}
                           onChange={(e) => setEditGivenNames(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                           placeholder="Given name(s)"
                         />
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Family name *
                         </label>
                         <input
@@ -2380,13 +2654,23 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={editFamilyName}
                           onChange={(e) => setEditFamilyName(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                           placeholder="Family name"
                         />
                       </div>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2402,9 +2686,12 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Email address" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Email address</h2>
+                  <h2 className="immi-account-section-heading">
+                    Email address
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Update your ImmiAccount login and notification email address.
+                    Update your ImmiAccount login and notification email
+                    address.
                   </p>
                   <form
                     onSubmit={(e) => {
@@ -2422,15 +2709,36 @@ function UserPortal({ initialSection }) {
                       setAccountMessage("Email address updated successfully.");
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        maxWidth: "460px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        marginBottom: "20px",
+                      }}>
                       <div>
-                        <span style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Current email address
                         </span>
-                        <span style={{ fontSize: "12px", color: "#333" }}>{userEmail}</span>
+                        <span style={{ fontSize: "12px", color: "#333" }}>
+                          {userEmail}
+                        </span>
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           New email address *
                         </label>
                         <input
@@ -2439,11 +2747,22 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={editEmail}
                           onChange={(e) => setEditEmail(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Confirm new email address *
                         </label>
                         <input
@@ -2452,12 +2771,22 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={editConfirmEmail}
                           onChange={(e) => setEditConfirmEmail(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2475,7 +2804,9 @@ function UserPortal({ initialSection }) {
                 <div>
                   <h2 className="immi-account-section-heading">Password</h2>
                   <p className="immi-account-service-intro">
-                    Change your ImmiAccount password. Passwords must be at least 14 characters long and include a mix of letters, numbers, and symbols.
+                    Change your ImmiAccount password. Passwords must be at least
+                    14 characters long and include a mix of letters, numbers,
+                    and symbols.
                   </p>
                   <form
                     onSubmit={(e) => {
@@ -2490,9 +2821,22 @@ function UserPortal({ initialSection }) {
                       setCurrentPasswordVal("");
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        maxWidth: "460px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        marginBottom: "20px",
+                      }}>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Current password *
                         </label>
                         <input
@@ -2500,12 +2844,25 @@ function UserPortal({ initialSection }) {
                           required
                           className="immi-input"
                           value={currentPasswordVal}
-                          onChange={(e) => setCurrentPasswordVal(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          onChange={(e) =>
+                            setCurrentPasswordVal(e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           New password *
                         </label>
                         <input
@@ -2514,11 +2871,22 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={newPasswordVal}
                           onChange={(e) => setNewPasswordVal(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Confirm new password *
                         </label>
                         <input
@@ -2526,13 +2894,25 @@ function UserPortal({ initialSection }) {
                           required
                           className="immi-input"
                           value={confirmPasswordVal}
-                          onChange={(e) => setConfirmPasswordVal(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          onChange={(e) =>
+                            setConfirmPasswordVal(e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2548,33 +2928,68 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Secret questions" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Secret questions</h2>
+                  <h2 className="immi-account-section-heading">
+                    Secret questions
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Secret questions help verify your identity if you forget your password or need to recover your account.
+                    Secret questions help verify your identity if you forget
+                    your password or need to recover your account.
                   </p>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      setAccountMessage("Secret questions updated successfully.");
+                      setAccountMessage(
+                        "Secret questions updated successfully.",
+                      );
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        maxWidth: "460px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        marginBottom: "20px",
+                      }}>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Question 1 *
                         </label>
                         <select
                           className="immi-input"
                           value={secretQ1}
                           onChange={(e) => setSecretQ1(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
-                          <option value="What was your first pet's name?">What was your first pet's name?</option>
-                          <option value="What city was your mother born in?">What city was your mother born in?</option>
-                          <option value="What was the name of your first school?">What was the name of your first school?</option>
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}>
+                          <option value="What was your first pet's name?">
+                            What was your first pet's name?
+                          </option>
+                          <option value="What city was your mother born in?">
+                            What city was your mother born in?
+                          </option>
+                          <option value="What was the name of your first school?">
+                            What was the name of your first school?
+                          </option>
                         </select>
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Answer 1 *
                         </label>
                         <input
@@ -2583,25 +2998,53 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={secretA1}
                           onChange={(e) => setSecretA1(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Question 2 *
                         </label>
                         <select
                           className="immi-input"
                           value={secretQ2}
                           onChange={(e) => setSecretQ2(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
-                          <option value="What is your favorite book?">What is your favorite book?</option>
-                          <option value="What was your dream job as a child?">What was your dream job as a child?</option>
-                          <option value="What was the model of your first car?">What was the model of your first car?</option>
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}>
+                          <option value="What is your favorite book?">
+                            What is your favorite book?
+                          </option>
+                          <option value="What was your dream job as a child?">
+                            What was your dream job as a child?
+                          </option>
+                          <option value="What was the model of your first car?">
+                            What was the model of your first car?
+                          </option>
                         </select>
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Answer 2 *
                         </label>
                         <input
@@ -2610,12 +3053,22 @@ function UserPortal({ initialSection }) {
                           className="immi-input"
                           value={secretA2}
                           onChange={(e) => setSecretA2(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2631,18 +3084,37 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Multi-factor authentication" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Multi-factor authentication</h2>
+                  <h2 className="immi-account-section-heading">
+                    Multi-factor authentication
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Manage how you authenticate when logging into your ImmiAccount.
+                    Manage how you authenticate when logging into your
+                    ImmiAccount.
                   </p>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      setAccountMessage("Multi-factor authentication method saved.");
+                      setAccountMessage(
+                        "Multi-factor authentication method saved.",
+                      );
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "550px", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                    <div
+                      style={{
+                        maxWidth: "550px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        marginBottom: "20px",
+                      }}>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
                         <input
                           type="radio"
                           name="mfaOption"
@@ -2650,9 +3122,19 @@ function UserPortal({ initialSection }) {
                           checked={mfaOption === "app"}
                           onChange={() => setMfaOption("app")}
                         />
-                        <span><strong>App authentication (recommended)</strong> - Authenticator app generates a 6-digit code</span>
+                        <span>
+                          <strong>App authentication (recommended)</strong> -
+                          Authenticator app generates a 6-digit code
+                        </span>
                       </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
                         <input
                           type="radio"
                           name="mfaOption"
@@ -2660,9 +3142,19 @@ function UserPortal({ initialSection }) {
                           checked={mfaOption === "email"}
                           onChange={() => setMfaOption("email")}
                         />
-                        <span><strong>Email one-time password</strong> - Verification code sent to {userEmail}</span>
+                        <span>
+                          <strong>Email one-time password</strong> -
+                          Verification code sent to {userEmail}
+                        </span>
                       </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
                         <input
                           type="radio"
                           name="mfaOption"
@@ -2670,11 +3162,19 @@ function UserPortal({ initialSection }) {
                           checked={mfaOption === "sms"}
                           onChange={() => setMfaOption("sms")}
                         />
-                        <span><strong>SMS one-time password</strong> - Verification code sent to your registered mobile number</span>
+                        <span>
+                          <strong>SMS one-time password</strong> - Verification
+                          code sent to your registered mobile number
+                        </span>
                       </label>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2690,9 +3190,12 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Alert preferences" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Alert preferences</h2>
+                  <h2 className="immi-account-section-heading">
+                    Alert preferences
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Configure how and when you receive alerts from your ImmiAccount.
+                    Configure how and when you receive alerts from your
+                    ImmiAccount.
                   </p>
                   <form
                     onSubmit={(e) => {
@@ -2700,8 +3203,22 @@ function UserPortal({ initialSection }) {
                       setAccountMessage("Alert preferences saved.");
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "550px", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                    <div
+                      style={{
+                        maxWidth: "550px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        marginBottom: "20px",
+                      }}>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
                         <input
                           type="checkbox"
                           checked={userAlertsPref}
@@ -2709,23 +3226,42 @@ function UserPortal({ initialSection }) {
                         />
                         <span>I will receive account alerts</span>
                       </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          defaultChecked
-                        />
-                        <span>Receive notification when an application status changes</span>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
+                        <input type="checkbox" defaultChecked />
+                        <span>
+                          Receive notification when an application status
+                          changes
+                        </span>
                       </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          defaultChecked
-                        />
-                        <span>Receive notification when correspondence or messages are received</span>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}>
+                        <input type="checkbox" defaultChecked />
+                        <span>
+                          Receive notification when correspondence or messages
+                          are received
+                        </span>
                       </label>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Save
                       </button>
                       <button
@@ -2741,45 +3277,92 @@ function UserPortal({ initialSection }) {
 
               {manageAccountTab === "Request access" && (
                 <div>
-                  <h2 className="immi-account-section-heading">Request access</h2>
+                  <h2 className="immi-account-section-heading">
+                    Request access
+                  </h2>
                   <p className="immi-account-service-intro">
-                    Request access to additional services, organisation accounts, or agent representation.
+                    Request access to additional services, organisation
+                    accounts, or agent representation.
                   </p>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      setAccountMessage("Access request submitted successfully.");
+                      setAccountMessage(
+                        "Access request submitted successfully.",
+                      );
                       setManageAccountTab("Summary");
                     }}>
-                    <div style={{ maxWidth: "460px", display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        maxWidth: "460px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        marginBottom: "20px",
+                      }}>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Service / Account Type *
                         </label>
                         <select
                           className="immi-input"
                           value={requestServiceType}
-                          onChange={(e) => setRequestServiceType(e.target.value)}
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}>
-                          <option value="Organisation access">Organisation access</option>
-                          <option value="Legal Practitioner / Migration Agent">Legal Practitioner / Migration Agent</option>
-                          <option value="Sponsor / Family access">Sponsor / Family access</option>
+                          onChange={(e) =>
+                            setRequestServiceType(e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}>
+                          <option value="Organisation access">
+                            Organisation access
+                          </option>
+                          <option value="Legal Practitioner / Migration Agent">
+                            Legal Practitioner / Migration Agent
+                          </option>
+                          <option value="Sponsor / Family access">
+                            Sponsor / Family access
+                          </option>
                         </select>
                       </div>
                       <div>
-                        <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
                           Organisation ID / MARN (if applicable)
                         </label>
                         <input
                           type="text"
                           className="immi-input"
-                          style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                           placeholder="e.g. ORG-123456"
                         />
                       </div>
                     </div>
-                    <div className="immi-account-bottom-bar" style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="immi-btn-classic" style={{ fontWeight: "bold" }}>
+                    <div
+                      className="immi-account-bottom-bar"
+                      style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        type="submit"
+                        className="immi-btn-classic"
+                        style={{ fontWeight: "bold" }}>
                         Submit Request
                       </button>
                       <button
@@ -2794,12 +3377,13 @@ function UserPortal({ initialSection }) {
               )}
             </div>
           </div>
-        ) : activeSection === "make-payment-section" ?
+        : activeSection === "make-payment-section" ?
           <div className="immi-make-payment-wrapper">
             <div className="immi-make-payment-card">
               {paymentCompletedReceipt ?
                 <div>
-                  <div style={{ textAlign: "center", padding: "10px 0 16px 0" }}>
+                  <div
+                    style={{ textAlign: "center", padding: "10px 0 16px 0" }}>
                     <div
                       style={{
                         width: "48px",
@@ -2949,7 +3533,10 @@ function UserPortal({ initialSection }) {
                           {isEditingPaymentDetails ?
                             <select
                               className="immi-prepay-select"
-                              value={paymentEditForm.paymentType || "Pay for online(s) application"}
+                              value={
+                                paymentEditForm.paymentType ||
+                                "Pay for online(s) application"
+                              }
                               onChange={(e) =>
                                 setPaymentEditForm({
                                   ...paymentEditForm,
@@ -2966,17 +3553,19 @@ function UserPortal({ initialSection }) {
                               <option value="Non-Internet Application Charge (NIAC)">
                                 Non-Internet Application Charge (NIAC)
                               </option>
-                              <option value="Sponsorship / Nomination Fee">
-                                Sponsorship / Nomination Fee
+                              <option value="Embassy fee">
+                                Embassy fee
                               </option>
                               <option value="Citizenship Application Fee">
                                 Citizenship Application Fee
                               </option>
                             </select>
                           : <div className="immi-prepay-text-val">
-                              <span>{makePaymentData.paymentType || "Pay for online(s) application"}</span>
-                              <span
-                                style={{ fontSize: "10px", color: "#555" }}>
+                              <span>
+                                {makePaymentData.paymentType ||
+                                  "Pay for online(s) application"}
+                              </span>
+                              <span style={{ fontSize: "10px", color: "#555" }}>
                                 ▼
                               </span>
                               <button
@@ -2990,9 +3579,13 @@ function UserPortal({ initialSection }) {
                               </button>
                               {showHelpTooltip && (
                                 <div className="immi-prepay-tooltip">
-                                  {makePaymentData.paymentType === "Pay for online(s) application"
-                                    ? "Payment charge for online visa applications lodged through ImmiAccount."
-                                    : "Pre-payment charge for visa applications lodged using physical paper forms."}
+                                  {(
+                                    makePaymentData.paymentType ===
+                                    "Pay for online(s) application"
+                                  ) ?
+                                    "Payment charge for online visa applications lodged through ImmiAccount."
+                                  : "Pre-payment charge for visa applications lodged using physical paper forms."
+                                  }
                                 </div>
                               )}
                             </div>
@@ -3057,7 +3650,7 @@ function UserPortal({ initialSection }) {
                         </td>
                         <td className="value-cell">
                           <span style={{ fontWeight: "500", color: "#333" }}>
-                            {paymentEditForm.familyName || makePaymentData.familyName}
+                            {getUserNamesFromStorage().familyName || ""}
                           </span>
                         </td>
                       </tr>
@@ -3068,18 +3661,30 @@ function UserPortal({ initialSection }) {
                         </td>
                         <td className="value-cell">
                           <span style={{ fontWeight: "500", color: "#333" }}>
-                            {paymentEditForm.givenNames || makePaymentData.givenNames}
+                            {getUserNamesFromStorage().givenName ||
+                              (paymentEditForm.givenNames !== "John" ? paymentEditForm.givenNames : "") ||
+                              (makePaymentData.givenNames !== "John" ? makePaymentData.givenNames : "") ||
+                              "Aman"}
                           </span>
                         </td>
                       </tr>
 
                       <tr>
                         <td className="label-cell">
-                          Date of birth<span className="immi-prepay-req">*</span>
+                          Date of birth
+                          <span className="immi-prepay-req">*</span>
                         </td>
                         <td className="value-cell">
                           <div className="immi-prepay-text-val">
-                            <span>{paymentEditForm.dateOfBirth || makePaymentData.dateOfBirth}</span>
+                            <span>
+                              {paymentEditForm.dateOfBirth &&
+                              paymentEditForm.dateOfBirth !== "26 Aug 1995"
+                                ? paymentEditForm.dateOfBirth
+                                : makePaymentData.dateOfBirth &&
+                                  makePaymentData.dateOfBirth !== "26 Aug 1995"
+                                ? makePaymentData.dateOfBirth
+                                : "18 Nov 2002"}
+                            </span>
                             <span
                               style={{
                                 fontSize: "14px",
@@ -3099,7 +3704,17 @@ function UserPortal({ initialSection }) {
                         </td>
                         <td className="value-cell">
                           <div className="immi-prepay-text-val">
-                            <span>{paymentEditForm.visaSubclass || makePaymentData.visaSubclass}</span>
+                            <span>
+                              {paymentEditForm.visaSubclass &&
+                              !paymentEditForm.visaSubclass.includes("600") &&
+                              !paymentEditForm.visaSubclass.includes("Temporary Skill Shortage")
+                                ? paymentEditForm.visaSubclass
+                                : makePaymentData.visaSubclass &&
+                                  !makePaymentData.visaSubclass.includes("600") &&
+                                  !makePaymentData.visaSubclass.includes("Temporary Skill Shortage")
+                                ? makePaymentData.visaSubclass
+                                : "482 skill in demand visa"}
+                            </span>
                             <span
                               style={{
                                 fontSize: "10px",
@@ -3124,7 +3739,13 @@ function UserPortal({ initialSection }) {
                               gap: "8px",
                             }}>
                             {/* Don't show amount without calculation; show amount only after calculation */}
-                            {(isEditingPaymentDetails ? paymentEditForm.isCalculated && paymentEditForm.amount : makePaymentData.isCalculated && makePaymentData.amount) ? (
+                            {(
+                              isEditingPaymentDetails ?
+                                paymentEditForm.isCalculated &&
+                                paymentEditForm.amount
+                              : makePaymentData.isCalculated &&
+                                makePaymentData.amount
+                            ) ?
                               <span
                                 style={{
                                   fontWeight: "600",
@@ -3132,18 +3753,26 @@ function UserPortal({ initialSection }) {
                                   color: "#222",
                                 }}>
                                 {parseFloat(
-                                  isEditingPaymentDetails ? paymentEditForm.amount : makePaymentData.amount,
+                                  isEditingPaymentDetails ?
+                                    paymentEditForm.amount
+                                  : makePaymentData.amount,
                                 ).toFixed(2)}
                               </span>
-                            ) : null}
+                            : null}
 
                             <button
                               type="button"
                               className="immi-prepay-calc-btn"
                               disabled={isCalculating}
-                              style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
+                              }}
                               onClick={handleCalculateAmount}>
-                              {isCalculating && <span className="immi-btn-spinner" />}
+                              {isCalculating && (
+                                <span className="immi-btn-spinner" />
+                              )}
                               {isCalculating ? "Calculating..." : "Calculate"}
                             </button>
 
@@ -3210,18 +3839,26 @@ function UserPortal({ initialSection }) {
                       marginTop: "16px",
                       paddingTop: "10px",
                     }}>
-                    {isEditingPaymentDetails ? (
+                    {isEditingPaymentDetails ?
                       <button
                         type="button"
                         className="immi-btn-classic"
-                        style={{ fontWeight: "bold", minWidth: "95px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                        style={{
+                          fontWeight: "bold",
+                          minWidth: "95px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "6px",
+                        }}
                         disabled={isConfirmingPayment}
                         onClick={handleSavePaymentDetails}>
-                        {isConfirmingPayment && <span className="immi-btn-spinner" />}
+                        {isConfirmingPayment && (
+                          <span className="immi-btn-spinner" />
+                        )}
                         {isConfirmingPayment ? "Confirming..." : "Confirm"}
                       </button>
-                    ) : (
-                      <button
+                    : <button
                         type="button"
                         className="immi-btn-classic"
                         onClick={() => {
@@ -3230,13 +3867,13 @@ function UserPortal({ initialSection }) {
                         }}>
                         Edit
                       </button>
-                    )}
+                    }
                   </div>
                 </div>
               }
             </div>
 
-            {/* 2. Payment Options Section Below (Razorpay Online Gateway) */}
+            {/* 2. Payment Options Section Below (Stripe Online Gateway) */}
             {!paymentCompletedReceipt && !isEditingPaymentDetails && (
               <div className="immi-payment-options-card">
                 <div className="immi-options-title">Payment options</div>
@@ -3246,24 +3883,52 @@ function UserPortal({ initialSection }) {
                   disputed, even if you change your mind.
                 </div>
 
-                <div className="immi-options-radios-row" style={{ display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap" }}>
+                <div
+                  className="immi-options-radios-row"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "24px",
+                    flexWrap: "wrap",
+                  }}>
                   <span style={{ fontSize: "12px", color: "#222" }}>
                     Select a payment option:
                   </span>
-                  <label className="immi-options-radio-label" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <label
+                    className="immi-options-radio-label"
+                    style={{
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}>
                     <input
                       type="radio"
                       name="paymentOption"
-                      value="razorpay"
-                      checked={selectedPaymentMethod === "razorpay"}
-                      onChange={() => setSelectedPaymentMethod("razorpay")}
+                      value="stripe"
+                      checked={selectedPaymentMethod === "stripe"}
+                      onChange={() => setSelectedPaymentMethod("stripe")}
                     />
-                    <span style={{ fontWeight: selectedPaymentMethod === "razorpay" ? "bold" : "normal", color: "#004b87" }}>
-                      Credit / Debit Card (Razorpay)
+                    <span
+                      style={{
+                        fontWeight:
+                          selectedPaymentMethod === "stripe" ? "bold" : (
+                            "normal"
+                          ),
+                        color: "#004b87",
+                      }}>
+                      Credit / Debit Card (Stripe)
                     </span>
                   </label>
 
-                  <label className="immi-options-radio-label" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <label
+                    className="immi-options-radio-label"
+                    style={{
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}>
                     <input
                       type="radio"
                       name="paymentOption"
@@ -3271,7 +3936,14 @@ function UserPortal({ initialSection }) {
                       checked={selectedPaymentMethod === "paypal"}
                       onChange={() => setSelectedPaymentMethod("paypal")}
                     />
-                    <span style={{ fontWeight: selectedPaymentMethod === "paypal" ? "bold" : "normal", color: "#004b87" }}>
+                    <span
+                      style={{
+                        fontWeight:
+                          selectedPaymentMethod === "paypal" ? "bold" : (
+                            "normal"
+                          ),
+                        color: "#004b87",
+                      }}>
                       PayPal
                     </span>
                   </label>
@@ -3279,27 +3951,69 @@ function UserPortal({ initialSection }) {
 
                 <div>
                   <div className="immi-options-subhead">
-                    {selectedPaymentMethod === "paypal"
-                      ? "Payment by PayPal"
-                      : "Payment by debit/credit card"}
+                    {selectedPaymentMethod === "paypal" ?
+                      "Payment by PayPal"
+                    : "Payment by debit/credit card"}
                   </div>
 
                   {/* Payment Badges Row */}
-                  {selectedPaymentMethod === "paypal" ? (
-                    <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
-                      <span className="immi-card-badge" title="PayPal" style={{ display: "inline-flex", alignItems: "center", padding: "3px 10px", backgroundColor: "#fff", border: "1px solid #cbd5e1", borderRadius: "3px" }}>
-                        <svg width="68" height="22" viewBox="0 0 100 32" fill="none">
-                          <path d="M12.5 4H24c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L14 30.5c-.1.5-.5.9-1 .9H6.5c-.7 0-1.1-.6-.9-1.2L11 4.9c.1-.5.7-.9 1.5-.9z" fill="#003087"/>
-                          <path d="M18.5 10.5H30c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L20 37c-.1.5-.5.9-1 .9h-6.5c-.7 0-1.1-.6-.9-1.2l5.4-25.3c.1-.5.7-.9 1.5-.9z" fill="#0079C1"/>
-                          <path d="M19 10.5c.3-1.6 1.7-2.8 3.3-2.8h11.2c3.5 0 6.3.8 8.1 2.5 1.5 1.4 2 3.3 1.5 5.5-1.2 5.1-4.8 8.2-10.1 8.8-1 .1-2.1.2-3.3.2H24.3c-.8 0-1.5.6-1.6 1.4l-1.8 11.2h-4.3c-.7 0-1.1-.6-.9-1.2L19 10.5z" fill="#00457C"/>
-                          <text x="44" y="23" fontFamily="Arial, sans-serif" fontSize="18" fontWeight="bold" fill="#003087">Pay</text>
-                          <text x="74" y="23" fontFamily="Arial, sans-serif" fontSize="18" fontWeight="bold" fill="#0079C1">Pal</text>
+                  {selectedPaymentMethod === "paypal" ?
+                    <div
+                      className="immi-card-badges-row"
+                      style={{ margin: "10px 0 14px 0" }}>
+                      <span
+                        className="immi-card-badge"
+                        title="PayPal"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "3px 10px",
+                          backgroundColor: "#fff",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "3px",
+                        }}>
+                        <svg
+                          width="68"
+                          height="22"
+                          viewBox="0 0 100 32"
+                          fill="none">
+                          <path
+                            d="M12.5 4H24c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L14 30.5c-.1.5-.5.9-1 .9H6.5c-.7 0-1.1-.6-.9-1.2L11 4.9c.1-.5.7-.9 1.5-.9z"
+                            fill="#003087"
+                          />
+                          <path
+                            d="M18.5 10.5H30c4.5 0 7.8 1.1 9.5 3.2 1.6 1.9 1.7 4.5.6 7.8-1.5 4.5-4.8 7.3-9.5 8.2-1 .2-2.2.3-3.6.3h-3.4c-.8 0-1.5.6-1.6 1.4L20 37c-.1.5-.5.9-1 .9h-6.5c-.7 0-1.1-.6-.9-1.2l5.4-25.3c.1-.5.7-.9 1.5-.9z"
+                            fill="#0079C1"
+                          />
+                          <path
+                            d="M19 10.5c.3-1.6 1.7-2.8 3.3-2.8h11.2c3.5 0 6.3.8 8.1 2.5 1.5 1.4 2 3.3 1.5 5.5-1.2 5.1-4.8 8.2-10.1 8.8-1 .1-2.1.2-3.3.2H24.3c-.8 0-1.5.6-1.6 1.4l-1.8 11.2h-4.3c-.7 0-1.1-.6-.9-1.2L19 10.5z"
+                            fill="#00457C"
+                          />
+                          <text
+                            x="44"
+                            y="23"
+                            fontFamily="Arial, sans-serif"
+                            fontSize="18"
+                            fontWeight="bold"
+                            fill="#003087">
+                            Pay
+                          </text>
+                          <text
+                            x="74"
+                            y="23"
+                            fontFamily="Arial, sans-serif"
+                            fontSize="18"
+                            fontWeight="bold"
+                            fill="#0079C1">
+                            Pal
+                          </text>
                         </svg>
                       </span>
                     </div>
-                  ) : (
-                    /* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */
-                    <div className="immi-card-badges-row" style={{ margin: "10px 0 14px 0" }}>
+                  : /* Card Logos: Visa, MasterCard, American Express, Diners Club, JCB */
+                    <div
+                      className="immi-card-badges-row"
+                      style={{ margin: "10px 0 14px 0" }}>
                       {/* Visa */}
                       <span className="immi-card-badge" title="Visa">
                         <svg
@@ -3307,12 +4021,7 @@ function UserPortal({ initialSection }) {
                           height="20"
                           viewBox="0 0 100 32"
                           fill="none">
-                          <rect
-                            width="100"
-                            height="32"
-                            rx="3"
-                            fill="#ffffff"
-                          />
+                          <rect width="100" height="32" rx="3" fill="#ffffff" />
                           <path
                             d="M38.5 24L43.8 8H48.4L43.1 24H38.5Z"
                             fill="#1A1F71"
@@ -3339,12 +4048,7 @@ function UserPortal({ initialSection }) {
                       {/* Mastercard */}
                       <span className="immi-card-badge" title="Mastercard">
                         <svg width="44" height="20" viewBox="0 0 70 40">
-                          <rect
-                            width="70"
-                            height="40"
-                            rx="3"
-                            fill="#0A0A0A"
-                          />
+                          <rect width="70" height="40" rx="3" fill="#0A0A0A" />
                           <circle cx="27" cy="20" r="14" fill="#EB001B" />
                           <circle
                             cx="43"
@@ -3357,14 +4061,11 @@ function UserPortal({ initialSection }) {
                       </span>
 
                       {/* American Express */}
-                      <span className="immi-card-badge" title="American Express">
+                      <span
+                        className="immi-card-badge"
+                        title="American Express">
                         <svg width="44" height="20" viewBox="0 0 60 40">
-                          <rect
-                            width="60"
-                            height="40"
-                            rx="3"
-                            fill="#0077A6"
-                          />
+                          <rect width="60" height="40" rx="3" fill="#0077A6" />
                           <text
                             x="30"
                             y="24"
@@ -3472,19 +4173,22 @@ function UserPortal({ initialSection }) {
                         </svg>
                       </span>
                     </div>
-                  )}
+                  }
 
-                  <div className="immi-prepay-notes" style={{ marginBottom: "12px" }}>
-                    {selectedPaymentMethod === "paypal" ? (
+                  <div
+                    className="immi-prepay-notes"
+                    style={{ marginBottom: "12px" }}>
+                    {selectedPaymentMethod === "paypal" ?
                       <p>
-                        Payments via PayPal are processed securely. You will be redirected to complete your PayPal payment.
+                        Payments via PayPal are processed securely. You will be
+                        redirected to complete your PayPal payment.
                       </p>
-                    ) : (
-                      <p>
-                        Payments are processed securely via the official <strong>Razorpay Payment Gateway</strong>.
-                        Cardholder authentication (3D Secure / OTP) is supported.
+                    : <p>
+                        Payments are processed securely via the official{" "}
+                        <strong>Stripe Payment Gateway</strong>. Cardholder
+                        authentication (3D Secure / OTP) is supported.
                       </p>
-                    )}
+                    }
                   </div>
 
                   {/* Payment Details Table */}
@@ -3492,19 +4196,28 @@ function UserPortal({ initialSection }) {
                     <table className="immi-prepay-table">
                       <tbody>
                         <tr>
-                          <td className="label-cell" style={{ width: "240px" }}>Payment method</td>
+                          <td className="label-cell" style={{ width: "240px" }}>
+                            Payment method
+                          </td>
                           <td className="value-cell">
-                            <span style={{ fontWeight: "600", color: "#004b87", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              {selectedPaymentMethod === "paypal" ? (
+                            <span
+                              style={{
+                                fontWeight: "600",
+                                color: "#004b87",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}>
+                              {selectedPaymentMethod === "paypal" ?
                                 <span>PayPal</span>
-                              ) : (
-                                <span>💳 Credit / Debit Card (Razorpay)</span>
-                              )}
+                              : <span>💳 Credit / Debit Card (Stripe)</span>}
                             </span>
                           </td>
                         </tr>
                         <tr>
-                          <td className="label-cell">Credit card surcharge (AUD)</td>
+                          <td className="label-cell">
+                            Credit card surcharge (AUD)
+                          </td>
                           <td className="value-cell">
                             <div
                               style={{
@@ -3551,18 +4264,25 @@ function UserPortal({ initialSection }) {
                                 alignItems: "center",
                                 gap: "6px",
                               }}>
-                              <span style={{ fontWeight: "bold", fontSize: "14px", color: "#004b87" }}>$</span>
                               <span
                                 style={{
                                   fontWeight: "bold",
                                   fontSize: "14px",
                                   color: "#004b87",
                                 }}>
-                                {makePaymentData.isCalculated &&
-                                makePaymentData.amount ?
-                                  parseFloat(
-                                    makePaymentData.amount,
-                                  ).toFixed(2)
+                                $
+                              </span>
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "14px",
+                                  color: "#004b87",
+                                }}>
+                                {(
+                                  makePaymentData.isCalculated &&
+                                  makePaymentData.amount
+                                ) ?
+                                  parseFloat(makePaymentData.amount).toFixed(2)
                                 : "0.00"}
                               </span>
                             </div>
@@ -3583,15 +4303,18 @@ function UserPortal({ initialSection }) {
                       color: "#1e1b4b",
                       lineHeight: "1.5",
                     }}>
-                    {selectedPaymentMethod === "paypal" ? (
+                    {selectedPaymentMethod === "paypal" ?
                       <span>
-                        When you click <strong>Pay</strong>, you will be redirected to PayPal to complete your payment.
+                        When you click <strong>Pay</strong>, you will be
+                        redirected to PayPal to complete your payment.
                       </span>
-                    ) : (
-                      <span>
-                        When you click <strong>Pay</strong>, the secure card payment checkout will open to process your payment. Once approved, your official Department of Home Affairs receipt will be generated automatically.
+                    : <span>
+                        When you click <strong>Pay</strong>, the secure card
+                        payment checkout will open to process your payment. Once
+                        approved, your official Department of Home Affairs
+                        receipt will be generated automatically.
                       </span>
-                    )}
+                    }
                   </div>
                 </div>
 
@@ -3618,16 +4341,23 @@ function UserPortal({ initialSection }) {
                   <button
                     type="button"
                     className="immi-btn-classic"
-                    style={{ fontWeight: "bold", minWidth: "85px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                    style={{
+                      fontWeight: "bold",
+                      minWidth: "85px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                    }}
                     disabled={isPaymentLoading}
                     onClick={() => {
                       if (selectedPaymentMethod === "paypal") {
                         alert(
-                          "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction."
+                          "Technical Error: The PayPal payment service is temporarily unavailable due to a technical error. Please select an alternative payment option (such as Credit / Debit Card) to complete your transaction.",
                         );
                         return;
                       }
-                      handleInitiateRazorpayPayment(makePaymentData);
+                      handleInitiateStripePayment(makePaymentData);
                     }}>
                     {isPaymentLoading && <span className="immi-btn-spinner" />}
                     {isPaymentLoading ? "Processing..." : "Pay"}
@@ -3945,23 +4675,34 @@ function UserPortal({ initialSection }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {isPaymentsLoading ? (
+                    {isPaymentsLoading ?
                       <tr className="loading-row">
-                        <td colSpan="10" style={{ padding: "40px 20px", textAlign: "center", backgroundColor: "#ffffff" }}>
-                          <div className="immi-loading-container" style={{ margin: "0 auto", padding: "10px" }}>
+                        <td
+                          colSpan="10"
+                          style={{
+                            padding: "40px 20px",
+                            textAlign: "center",
+                            backgroundColor: "#ffffff",
+                          }}>
+                          <div
+                            className="immi-loading-container"
+                            style={{ margin: "0 auto", padding: "10px" }}>
                             <div className="immi-spinner-gov"></div>
                             <div className="immi-loading-text">
                               <strong>Loading payment records...</strong>
-                              <span>Please wait while your payments are retrieved from the Department server.</span>
+                              <span>
+                                Please wait while your payments are retrieved
+                                from the Department server.
+                              </span>
                             </div>
                           </div>
                         </td>
                       </tr>
-                    ) : filteredPayments.length === 0 ? (
+                    : filteredPayments.length === 0 ?
                       <tr className="empty-row">
                         <td colSpan="10">No data available in table</td>
                       </tr>
-                    ) : filteredPayments.map((p, idx) => (
+                    : filteredPayments.map((p, idx) => (
                         <tr key={p.id || p.ref || idx}>
                           <td>{p.type || "Invoice Payment"}</td>
                           <td>
@@ -4094,7 +4835,9 @@ function UserPortal({ initialSection }) {
               {/* Toolbar */}
               <div className="immi-groups-toolbar">
                 <div className="immi-groups-sort-group">
-                  <label htmlFor="group-sort-select" className="immi-groups-label">
+                  <label
+                    htmlFor="group-sort-select"
+                    className="immi-groups-label">
                     Sort by
                   </label>
                   <select
@@ -4146,12 +4889,14 @@ function UserPortal({ initialSection }) {
               </div>
 
               {/* Empty state or Group table */}
-              {groups.filter((g) => showExpired || g.status !== "Expired").length === 0 ? (
-                <div className="immi-groups-empty-text">
-                  No results found
-                </div>
-              ) : (
-                <div className="immi-table-wrapper" style={{ marginTop: "10px" }}>
+              {(
+                groups.filter((g) => showExpired || g.status !== "Expired")
+                  .length === 0
+              ) ?
+                <div className="immi-groups-empty-text">No results found</div>
+              : <div
+                  className="immi-table-wrapper"
+                  style={{ marginTop: "10px" }}>
                   <table className="immi-apps-table">
                     <thead>
                       <tr>
@@ -4176,13 +4921,15 @@ function UserPortal({ initialSection }) {
                             valA = a.createdDate;
                             valB = b.createdDate;
                           }
-                          return groupSortAsc
-                            ? valA.localeCompare(valB)
+                          return groupSortAsc ?
+                              valA.localeCompare(valB)
                             : valB.localeCompare(valA);
                         })
                         .map((grp) => (
                           <tr key={grp.id}>
-                            <td><strong>{grp.name}</strong></td>
+                            <td>
+                              <strong>{grp.name}</strong>
+                            </td>
                             <td>{grp.type}</td>
                             <td>{grp.createdDate}</td>
                             <td>{grp.expiryDate}</td>
@@ -4196,10 +4943,15 @@ function UserPortal({ initialSection }) {
                                 type="button"
                                 className="immi-btn-details"
                                 onClick={() => {
-                                  const rem = groups.filter((g) => g.id !== grp.id);
+                                  const rem = groups.filter(
+                                    (g) => g.id !== grp.id,
+                                  );
                                   setGroups(rem);
                                   try {
-                                    localStorage.setItem("immi_groups", JSON.stringify(rem));
+                                    localStorage.setItem(
+                                      "immi_groups",
+                                      JSON.stringify(rem),
+                                    );
                                   } catch (e) {
                                     console.error(e);
                                   }
@@ -4212,7 +4964,7 @@ function UserPortal({ initialSection }) {
                     </tbody>
                   </table>
                 </div>
-              )}
+              }
             </div>
           </div>
         : <div className="immi-dashboard-card">
@@ -4381,7 +5133,8 @@ function UserPortal({ initialSection }) {
               </h2>
 
               {/* Category Filter Pills */}
-              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              <div
+                style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button
                   type="button"
                   className={`immi-btn-sm ${appCategoryFilter === "all" ? "immi-btn-primary-sm" : ""}`}
@@ -4393,7 +5146,11 @@ function UserPortal({ initialSection }) {
                     fontWeight: appCategoryFilter === "all" ? "600" : "normal",
                   }}
                   onClick={() => setAppCategoryFilter("all")}>
-                  All ({filteredVisas.length + filteredNominations.length + filteredSponsorships.length})
+                  All (
+                  {filteredVisas.length +
+                    filteredNominations.length +
+                    filteredSponsorships.length}
+                  )
                 </button>
                 <button
                   type="button"
@@ -4403,7 +5160,8 @@ function UserPortal({ initialSection }) {
                     borderRadius: "3px",
                     cursor: "pointer",
                     fontSize: "11px",
-                    fontWeight: appCategoryFilter === "visas" ? "600" : "normal",
+                    fontWeight:
+                      appCategoryFilter === "visas" ? "600" : "normal",
                   }}
                   onClick={() => setAppCategoryFilter("visas")}>
                   Visas ({filteredVisas.length})
@@ -4416,7 +5174,8 @@ function UserPortal({ initialSection }) {
                     borderRadius: "3px",
                     cursor: "pointer",
                     fontSize: "11px",
-                    fontWeight: appCategoryFilter === "nominations" ? "600" : "normal",
+                    fontWeight:
+                      appCategoryFilter === "nominations" ? "600" : "normal",
                   }}
                   onClick={() => setAppCategoryFilter("nominations")}>
                   Nominations ({filteredNominations.length})
@@ -4429,7 +5188,8 @@ function UserPortal({ initialSection }) {
                     borderRadius: "3px",
                     cursor: "pointer",
                     fontSize: "11px",
-                    fontWeight: appCategoryFilter === "sponsorships" ? "600" : "normal",
+                    fontWeight:
+                      appCategoryFilter === "sponsorships" ? "600" : "normal",
                   }}
                   onClick={() => setAppCategoryFilter("sponsorships")}>
                   Sponsorships ({filteredSponsorships.length})
@@ -4465,7 +5225,11 @@ function UserPortal({ initialSection }) {
                   type="button"
                   className="immi-refresh-link"
                   disabled={isLoading}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                  }}
                   onClick={fetchUserApplications}>
                   <svg
                     className={isLoading ? "immi-spin" : ""}
@@ -4485,17 +5249,29 @@ function UserPortal({ initialSection }) {
             {/* Applications Table / Empty State */}
             <div className="immi-applications-container">
               {isLoading ?
-                <div className="immi-loading-container" style={{ border: "1px solid #ccd4db", margin: "16px 0" }}>
+                <div
+                  className="immi-loading-container"
+                  style={{ border: "1px solid #ccd4db", margin: "16px 0" }}>
                   <div className="immi-spinner-gov"></div>
                   <div className="immi-loading-text">
                     <strong>Loading applications...</strong>
-                    <span>Please wait while your ImmiAccount application data is retrieved.</span>
+                    <span>
+                      Please wait while your ImmiAccount application data is
+                      retrieved.
+                    </span>
                   </div>
                 </div>
-              : (appCategoryFilter === "all" && filteredVisas.length === 0 && filteredNominations.length === 0 && filteredSponsorships.length === 0) ||
+              : (
+                (appCategoryFilter === "all" &&
+                  filteredVisas.length === 0 &&
+                  filteredNominations.length === 0 &&
+                  filteredSponsorships.length === 0) ||
                 (appCategoryFilter === "visas" && filteredVisas.length === 0) ||
-                (appCategoryFilter === "nominations" && filteredNominations.length === 0) ||
-                (appCategoryFilter === "sponsorships" && filteredSponsorships.length === 0) ?
+                (appCategoryFilter === "nominations" &&
+                  filteredNominations.length === 0) ||
+                (appCategoryFilter === "sponsorships" &&
+                  filteredSponsorships.length === 0)
+              ) ?
                 <div className="immi-no-results">No results found</div>
               : <table className="immi-applications-table">
                   <thead>
@@ -4510,7 +5286,8 @@ function UserPortal({ initialSection }) {
                   </thead>
                   <tbody>
                     {/* Render Visas */}
-                    {(appCategoryFilter === "all" || appCategoryFilter === "visas") &&
+                    {(appCategoryFilter === "all" ||
+                      appCategoryFilter === "visas") &&
                       filteredVisas.map((visa) => (
                         <tr
                           key={visa._id || visa.trn || Math.random()}
@@ -4551,7 +5328,8 @@ function UserPortal({ initialSection }) {
                       ))}
 
                     {/* Render Nominations */}
-                    {(appCategoryFilter === "all" || appCategoryFilter === "nominations") &&
+                    {(appCategoryFilter === "all" ||
+                      appCategoryFilter === "nominations") &&
                       filteredNominations.map((nom) => (
                         <tr
                           key={nom._id || nom.nominationTrn || Math.random()}
@@ -4574,18 +5352,22 @@ function UserPortal({ initialSection }) {
                               Nomination
                             </span>
                             <div>
-                              <strong>{nom.visaProgram || "Nomination Application"}</strong>
+                              <strong>
+                                {nom.visaProgram || "Nomination Application"}
+                              </strong>
                             </div>
                           </td>
                           <td className="immi-cell-trn">
                             <strong>{nom.nominationTrn || "—"}</strong>
                             {nom.fileNumber && (
-                              <div style={{ fontSize: "11px", color: "#64748b" }}>
+                              <div
+                                style={{ fontSize: "11px", color: "#64748b" }}>
                                 File: {nom.fileNumber}
                               </div>
                             )}
                             {nom.applicationId && (
-                              <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                              <div
+                                style={{ fontSize: "11px", color: "#94a3b8" }}>
                                 ID: {nom.applicationId}
                               </div>
                             )}
@@ -4615,7 +5397,8 @@ function UserPortal({ initialSection }) {
                       ))}
 
                     {/* Render Sponsorships */}
-                    {(appCategoryFilter === "all" || appCategoryFilter === "sponsorships") &&
+                    {(appCategoryFilter === "all" ||
+                      appCategoryFilter === "sponsorships") &&
                       filteredSponsorships.map((spon) => (
                         <tr
                           key={spon._id || spon.sponsorshipTrn || Math.random()}
@@ -4638,18 +5421,22 @@ function UserPortal({ initialSection }) {
                               Sponsorship
                             </span>
                             <div>
-                              <strong>{spon.visaProgram || "Sponsorship Application"}</strong>
+                              <strong>
+                                {spon.visaProgram || "Sponsorship Application"}
+                              </strong>
                             </div>
                           </td>
                           <td className="immi-cell-trn">
                             <strong>{spon.sponsorshipTrn || "—"}</strong>
                             {spon.fileNumber && (
-                              <div style={{ fontSize: "11px", color: "#64748b" }}>
+                              <div
+                                style={{ fontSize: "11px", color: "#64748b" }}>
                                 File: {spon.fileNumber}
                               </div>
                             )}
                             {spon.applicationId && (
-                              <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                              <div
+                                style={{ fontSize: "11px", color: "#94a3b8" }}>
                                 ID: {spon.applicationId}
                               </div>
                             )}
@@ -4683,7 +5470,6 @@ function UserPortal({ initialSection }) {
             </div>
           </div>
         }
-
       </main>
 
       {/* Full-width Government Footer */}
@@ -4763,9 +5549,7 @@ function UserPortal({ initialSection }) {
                   </tr>
                   <tr>
                     <th>Primary Applicant</th>
-                    <td>
-                      {formatPrimaryApplicantName(selectedVisa)}
-                    </td>
+                    <td>{formatPrimaryApplicantName(selectedVisa)}</td>
                   </tr>
                   <tr>
                     <th>Date of Birth</th>
@@ -4913,7 +5697,8 @@ function UserPortal({ initialSection }) {
                   <tr>
                     <th>Nomination Reference (TRN)</th>
                     <td>
-                      <strong style={{ color: "#004b87", letterSpacing: "0.5px" }}>
+                      <strong
+                        style={{ color: "#004b87", letterSpacing: "0.5px" }}>
                         {selectedNomination.nominationTrn || "—"}
                       </strong>
                     </td>
@@ -4938,9 +5723,7 @@ function UserPortal({ initialSection }) {
                   </tr>
                   <tr>
                     <th>Primary Nominated Applicant</th>
-                    <td>
-                      {formatPrimaryApplicantName(selectedNomination)}
-                    </td>
+                    <td>{formatPrimaryApplicantName(selectedNomination)}</td>
                   </tr>
                   <tr>
                     <th>Status</th>
@@ -4975,16 +5758,18 @@ function UserPortal({ initialSection }) {
                   }}>
                   Attached Documents &amp; Notices
                 </h4>
-                {selectedNomination.document &&
-                Array.isArray(selectedNomination.document) &&
-                selectedNomination.document.length > 0 ? (
+                {(
+                  selectedNomination.document &&
+                  Array.isArray(selectedNomination.document) &&
+                  selectedNomination.document.length > 0
+                ) ?
                   <ul className="immi-docs-list">
                     {selectedNomination.document.map((doc, idx) => (
                       <li key={idx} className="immi-doc-item">
                         <span>
                           📄 {doc.name || "Nomination Approval Notice"}
                         </span>
-                        {doc.url ? (
+                        {doc.url ?
                           <a
                             href={doc.url}
                             target="_blank"
@@ -5004,19 +5789,18 @@ function UserPortal({ initialSection }) {
                             </svg>
                             <span>View / Download PDF</span>
                           </a>
-                        ) : (
-                          <span style={{ color: "#888", fontSize: "11px" }}>
+                        : <span style={{ color: "#888", fontSize: "11px" }}>
                             Processed
                           </span>
-                        )}
+                        }
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
-                    No correspondence files attached to this nomination application yet.
+                : <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
+                    No correspondence files attached to this nomination
+                    application yet.
                   </p>
-                )}
+                }
               </div>
             </div>
             <div className="immi-modal-footer">
@@ -5078,7 +5862,8 @@ function UserPortal({ initialSection }) {
                   <tr>
                     <th>Sponsorship Reference (TRN)</th>
                     <td>
-                      <strong style={{ color: "#004b87", letterSpacing: "0.5px" }}>
+                      <strong
+                        style={{ color: "#004b87", letterSpacing: "0.5px" }}>
                         {selectedSponsorship.sponsorshipTrn || "—"}
                       </strong>
                     </td>
@@ -5103,9 +5888,7 @@ function UserPortal({ initialSection }) {
                   </tr>
                   <tr>
                     <th>Primary Sponsored Applicant</th>
-                    <td>
-                      {formatPrimaryApplicantName(selectedSponsorship)}
-                    </td>
+                    <td>{formatPrimaryApplicantName(selectedSponsorship)}</td>
                   </tr>
                   <tr>
                     <th>Status</th>
@@ -5140,16 +5923,18 @@ function UserPortal({ initialSection }) {
                   }}>
                   Attached Documents &amp; Notices
                 </h4>
-                {selectedSponsorship.document &&
-                Array.isArray(selectedSponsorship.document) &&
-                selectedSponsorship.document.length > 0 ? (
+                {(
+                  selectedSponsorship.document &&
+                  Array.isArray(selectedSponsorship.document) &&
+                  selectedSponsorship.document.length > 0
+                ) ?
                   <ul className="immi-docs-list">
                     {selectedSponsorship.document.map((doc, idx) => (
                       <li key={idx} className="immi-doc-item">
                         <span>
                           📄 {doc.name || "Sponsorship Approval Notice"}
                         </span>
-                        {doc.url ? (
+                        {doc.url ?
                           <a
                             href={doc.url}
                             target="_blank"
@@ -5169,19 +5954,18 @@ function UserPortal({ initialSection }) {
                             </svg>
                             <span>View / Download PDF</span>
                           </a>
-                        ) : (
-                          <span style={{ color: "#888", fontSize: "11px" }}>
+                        : <span style={{ color: "#888", fontSize: "11px" }}>
                             Processed
                           </span>
-                        )}
+                        }
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
-                    No correspondence files attached to this sponsorship application yet.
+                : <p style={{ color: "#666", fontStyle: "italic", margin: 0 }}>
+                    No correspondence files attached to this sponsorship
+                    application yet.
                   </p>
-                )}
+                }
               </div>
             </div>
             <div className="immi-modal-footer">
@@ -5274,7 +6058,11 @@ function UserPortal({ initialSection }) {
                 <button
                   type="submit"
                   className="immi-btn-primary-sm"
-                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
                   disabled={importLoading}>
                   {importLoading && <span className="immi-btn-spinner-white" />}
                   {importLoading ? "Searching..." : "Import Application"}
@@ -5462,7 +6250,12 @@ function UserPortal({ initialSection }) {
               <button
                 type="button"
                 className="immi-btn-cancel"
-                style={{ backgroundColor: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5", marginRight: "auto" }}
+                style={{
+                  backgroundColor: "#fef2f2",
+                  color: "#dc2626",
+                  borderColor: "#fca5a5",
+                  marginRight: "auto",
+                }}
                 onClick={() => {
                   setShowAccountModal(false);
                   handleLogout();
@@ -6244,48 +7037,86 @@ function UserPortal({ initialSection }) {
             </div>
             <form onSubmit={handleCreateGroup}>
               <div className="immi-modal-body">
-                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                <div
+                  className="immi-field-group"
+                  style={{ marginBottom: "14px" }}>
                   <label
                     className="immi-field-label"
-                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    style={{
+                      display: "block",
+                      marginBottom: "4px",
+                      fontWeight: "bold",
+                      fontSize: "12.5px",
+                    }}>
                     Group Name *
                   </label>
                   <input
                     type="text"
                     required
                     className="immi-input"
-                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      border: "1px solid #bcc5cc",
+                      boxSizing: "border-box",
+                    }}
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
                     placeholder="Enter group name"
                   />
                 </div>
-                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                <div
+                  className="immi-field-group"
+                  style={{ marginBottom: "14px" }}>
                   <label
                     className="immi-field-label"
-                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    style={{
+                      display: "block",
+                      marginBottom: "4px",
+                      fontWeight: "bold",
+                      fontSize: "12.5px",
+                    }}>
                     Group Type
                   </label>
                   <select
                     className="immi-input"
-                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      border: "1px solid #bcc5cc",
+                      boxSizing: "border-box",
+                    }}
                     value={newGroupType}
                     onChange={(e) => setNewGroupType(e.target.value)}>
                     <option value="Organisation">Organisation</option>
-                    <option value="Legal Representative / Migration Agent">Legal Representative / Migration Agent</option>
+                    <option value="Legal Representative / Migration Agent">
+                      Legal Representative / Migration Agent
+                    </option>
                     <option value="Family / Sponsor">Family / Sponsor</option>
                   </select>
                 </div>
-                <div className="immi-field-group" style={{ marginBottom: "14px" }}>
+                <div
+                  className="immi-field-group"
+                  style={{ marginBottom: "14px" }}>
                   <label
                     className="immi-field-label"
-                    style={{ display: "block", marginBottom: "4px", fontWeight: "bold", fontSize: "12.5px" }}>
+                    style={{
+                      display: "block",
+                      marginBottom: "4px",
+                      fontWeight: "bold",
+                      fontSize: "12.5px",
+                    }}>
                     Description
                   </label>
                   <textarea
                     rows={3}
                     className="immi-input"
-                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #bcc5cc", boxSizing: "border-box" }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      border: "1px solid #bcc5cc",
+                      boxSizing: "border-box",
+                    }}
                     value={newGroupDescription}
                     onChange={(e) => setNewGroupDescription(e.target.value)}
                     placeholder="Optional group description"
@@ -6294,7 +7125,14 @@ function UserPortal({ initialSection }) {
               </div>
               <div
                 className="immi-modal-footer"
-                style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "12px 16px", background: "#f8f9fa", borderTop: "1px solid #e9ecef" }}>
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                  padding: "12px 16px",
+                  background: "#f8f9fa",
+                  borderTop: "1px solid #e9ecef",
+                }}>
                 <button
                   type="button"
                   className="immi-btn-sm"
@@ -6304,7 +7142,15 @@ function UserPortal({ initialSection }) {
                 <button
                   type="submit"
                   className="immi-btn-primary"
-                  style={{ backgroundColor: "#004b87", color: "#fff", border: "none", padding: "6px 14px", cursor: "pointer", fontWeight: "bold", borderRadius: "2px" }}>
+                  style={{
+                    backgroundColor: "#004b87",
+                    color: "#fff",
+                    border: "none",
+                    padding: "6px 14px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                    borderRadius: "2px",
+                  }}>
                   Save Group
                 </button>
               </div>

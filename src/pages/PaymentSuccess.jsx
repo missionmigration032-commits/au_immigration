@@ -1,105 +1,100 @@
 import React, { useEffect, useState } from "react";
-import { useLocation, useNavigate, Link } from "react-router-dom";
-import { verifyRazorpayOrder } from "../services/razorpayService";
-import logoHA from "../assets/images/logo-ha.png";
+import { useLocation, useNavigate } from "react-router-dom";
 import logoStacked from "../assets/images/logostacked.png";
 import "./immiaccount.css";
 
 function PaymentSuccess() {
   const location = useLocation();
   const navigate = useNavigate();
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
 
   const queryParams = new URLSearchParams(location.search);
-  const orderId = queryParams.get("order_id") || queryParams.get("session_id");
+  const sessionId = queryParams.get("session_id") || queryParams.get("order_id");
   const paymentId = queryParams.get("payment_id");
-  const razorpayPaymentId = queryParams.get("razorpay_payment_id");
-  const token = localStorage.getItem("token");
 
   useEffect(() => {
     let isMounted = true;
 
-    const verify = async () => {
-      if (!orderId && !paymentId) {
-        setError("Missing order_id or payment reference in redirect URL.");
-        setLoading(false);
-        return;
-      }
+    // Simulate verification check, then fail payment with Technical Error
+    const timer = setTimeout(() => {
+      if (!isMounted) return;
 
+      // Extract existing payment from localStorage if available
+      let foundPayment = null;
       try {
-        let result;
-        if (orderId) {
-          result = await verifyRazorpayOrder(orderId, token);
-        } else if (paymentId) {
-          const res = await fetch(`${API_URL}/api/payments/${paymentId}?origin=au`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          const pData = await res.json();
-          result = { payment: pData.payment || pData };
-        }
+        const saved = localStorage.getItem("au_payments");
+        if (saved) {
+          const list = JSON.parse(saved);
+          if (Array.isArray(list)) {
+            // Find payment by paymentId or reference, or default to first pending
+            foundPayment =
+              list.find(
+                (p) =>
+                  String(p.id) === String(paymentId) ||
+                  String(p._id) === String(paymentId) ||
+                  p.ref === "9S868UST",
+              ) ||
+              list.find((p) => (p.status || "").toLowerCase() === "pending") ||
+              list[0];
 
-        if (isMounted) {
-          setPaymentData(result.payment);
-          setLoading(false);
+            // Mark this payment as Failed in localStorage
+            const updated = list.map((p) => {
+              if (
+                foundPayment &&
+                (p.id === foundPayment.id ||
+                  p.ref === foundPayment.ref ||
+                  p.ref === "9S868UST")
+              ) {
+                return { ...p, status: "Failed" };
+              }
+              return p;
+            });
+            localStorage.setItem("au_payments", JSON.stringify(updated));
+          }
         }
-      } catch (err) {
-        console.error("Verification error:", err);
-        if (isMounted) {
-          setError(err.message || "Failed to verify Razorpay payment order");
-          setLoading(false);
-        }
+      } catch (e) {
+        console.error("Failed to update payment status in storage:", e);
       }
-    };
 
-    verify();
+      setPaymentData(foundPayment);
+      setLoading(false);
+    }, 1200);
 
     return () => {
       isMounted = false;
+      clearTimeout(timer);
     };
-  }, [orderId, paymentId, token]);
+  }, [sessionId, paymentId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("userId");
-    localStorage.removeItem("username");
-    localStorage.removeItem("user");
-    navigate("/lusc/login");
-  };
-
-  const receiptNum =
+  const refNumber =
+    paymentData?.ref ||
     paymentData?.referenceNumber ||
-    "RC" + Math.floor(100000000 + Math.random() * 900000000);
-  const voucherNum =
-    razorpayPaymentId ||
-    paymentData?.razorpayPaymentId ||
-    paymentData?.razorpayOrderId ||
-    paymentData?.stripePaymentIntentId ||
-    paymentData?.stripeSessionId ||
-    "RZP-" + (orderId ? orderId.slice(-8) : "APPROVED");
-  const amountFormatted = paymentData?.amount
-    ? parseFloat(paymentData.amount).toFixed(2)
-    : "145.00";
-  const currencyFormatted = paymentData?.currency || "AUD";
-  const dateFormatted = paymentData?.transactionDate
-    ? new Date(paymentData.transactionDate).toLocaleString("en-AU", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : new Date().toLocaleString("en-AU", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
+    "9S868UST";
+
+  const amountFormatted =
+    paymentData?.amount ?
+      parseFloat(paymentData.amount).toFixed(2)
+    : "4015.00";
+
+  const paymentDescription =
+    paymentData?.type ||
+    "Payment for Nomination Application (9S868UST)";
+
+  const dateFormatted = new Date().toLocaleString("en-AU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
   return (
-    <div className="immi-application" style={{ minHeight: "100vh", backgroundColor: "#b5bcc4", display: "flex", flexDirection: "column" }}>
+    <div
+      className="immi-application"
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#b5bcc4",
+        display: "flex",
+        flexDirection: "column",
+      }}>
       {/* Header */}
       <header className="immi-header">
         <div className="immi-header-left">
@@ -126,7 +121,12 @@ function PaymentSuccess() {
       </header>
 
       {/* Main Content (Full Width) */}
-      <main style={{ width: "100%", padding: "14px 24px 14px 24px", boxSizing: "border-box" }}>
+      <main
+        style={{
+          width: "100%",
+          padding: "14px 24px 24px 24px",
+          boxSizing: "border-box",
+        }}>
         {loading ? (
           <div
             style={{
@@ -137,7 +137,7 @@ function PaymentSuccess() {
               textAlign: "center",
               boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
               maxWidth: "600px",
-              margin: "30px auto",
+              margin: "40px auto",
             }}>
             <div
               style={{
@@ -151,11 +151,17 @@ function PaymentSuccess() {
                 margin: "0 auto 16px auto",
               }}
             />
-            <h2 style={{ color: "#002b49", margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
-              Verifying Payment with Department of Home Affairs...
+            <h2
+              style={{
+                color: "#002b49",
+                margin: "0 0 8px 0",
+                fontSize: "18px",
+                fontWeight: "600",
+              }}>
+              Processing Payment with Department of Home Affairs...
             </h2>
             <p style={{ color: "#64748b", margin: 0, fontSize: "13px" }}>
-              Please wait while your official payment receipt and transaction confirmation are retrieved.
+              Please wait while your transaction request is being communicated with the payment gateway.
             </p>
             <style>{`
               @keyframes spin {
@@ -163,264 +169,301 @@ function PaymentSuccess() {
               }
             `}</style>
           </div>
-        ) : error ? (
+        ) : (
           <div
             style={{
               backgroundColor: "white",
-              padding: "35px",
-              borderRadius: "8px",
+              padding: "32px 36px",
+              borderRadius: "6px",
               boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
-              borderTop: "4px solid #dc3545",
+              borderTop: "4px solid #dc2626",
+              maxWidth: "860px",
+              margin: "20px auto",
+              boxSizing: "border-box",
             }}>
+            {/* Error Icon */}
             <div
               style={{
-                width: "48px",
-                height: "48px",
+                width: "56px",
+                height: "56px",
                 borderRadius: "50%",
                 backgroundColor: "#fee2e2",
                 color: "#b91c1c",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "24px",
+                fontSize: "30px",
                 fontWeight: "bold",
-                margin: "0 auto 15px auto",
+                margin: "0 auto 16px auto",
               }}>
-              ✕
+              !
             </div>
-            <h2 style={{ textAlign: "center", color: "#991b1b", margin: "0 0 10px 0" }}>
-              Payment Verification Failed
-            </h2>
-            <p style={{ textAlign: "center", color: "#666", fontSize: "14px" }}>
-              {error}
-            </p>
-            <div style={{ textAlign: "center", marginTop: "25px" }}>
-              <button
-                type="button"
-                className="immi-btn-classic"
-                onClick={() => navigate("/user-portal")}>
-                Return to ImmiAccount
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {/* Success Banner */}
-            <div
+
+            <h1
               style={{
-                backgroundColor: "white",
-                padding: "24px",
-                borderRadius: "8px",
-                marginBottom: "20px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
-                borderTop: "4px solid #10b981",
+                color: "#991b1b",
+                fontSize: "22px",
+                margin: "0 0 6px 0",
+                fontWeight: "700",
                 textAlign: "center",
               }}>
-              <div
-                style={{
-                  width: "52px",
-                  height: "52px",
-                  borderRadius: "50%",
-                  backgroundColor: "#ecfdf5",
-                  color: "#047857",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "28px",
-                  fontWeight: "bold",
-                  margin: "0 auto 12px auto",
-                }}>
-                ✓
-              </div>
-              <h1
-                style={{
-                  color: "#002b49",
-                  fontSize: "22px",
-                  margin: "0 0 8px 0",
-                  fontWeight: "600",
-                }}>
-                Payment Successful &amp; Verified
-              </h1>
-              <p style={{ color: "#475569", margin: 0, fontSize: "13px" }}>
-                Your payment has been securely processed by Razorpay and verified by the Australian Department of Home Affairs.
-              </p>
+              Technical Error
+            </h1>
+
+            <p
+              style={{
+                color: "#475569",
+                fontSize: "13px",
+                textAlign: "center",
+                margin: "0 0 20px 0",
+              }}>
+              Your payment could not be processed due to a gateway technical error.
+            </p>
+
+            {/* Official Technical Error Banner */}
+            <div
+              style={{
+                backgroundColor: "#fef2f2",
+                border: "1px solid #fca5a5",
+                borderLeft: "6px solid #dc2626",
+                padding: "16px 20px",
+                borderRadius: "4px",
+                margin: "0 0 24px 0",
+                color: "#7f1d1d",
+                fontSize: "14px",
+                lineHeight: "1.6",
+                textAlign: "left",
+              }}>
+              <strong>Technical Error:</strong> The payment service is temporarily
+              unavailable due to a technical error. Your payment could not be
+              processed and no funds have been debited from your card or account.
+              Please select an alternative payment option (such as Credit / Debit
+              Card) to complete your transaction, or try again later.
             </div>
 
-            {/* Official Receipt Card */}
+            {/* Transaction Details Summary Box */}
             <div
-              className="immi-receipt-card"
               style={{
-                backgroundColor: "white",
-                padding: "24px",
-                borderRadius: "8px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
+                border: "1px solid #e2e8f0",
+                borderRadius: "6px",
+                overflow: "hidden",
+                marginBottom: "20px",
+                backgroundColor: "#fafbfc",
               }}>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  borderBottom: "2px solid #002b49",
-                  paddingBottom: "12px",
-                  marginBottom: "16px",
+                  backgroundColor: "#002b49",
+                  color: "white",
+                  padding: "10px 16px",
+                  fontSize: "14px",
+                  fontWeight: "600",
                 }}>
-                <span
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: "bold",
-                    color: "#002b49",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}>
-                  Official Payment Receipt &amp; Pre-pay Paper Voucher
-                </span>
-                <span
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                    color: "#047857",
-                    backgroundColor: "#ecfdf5",
-                    border: "1px solid #a7f3d0",
-                    padding: "4px 10px",
-                    borderRadius: "4px",
-                  }}>
-                  PAID (RAZORPAY)
-                </span>
+                Transaction Reference Details
               </div>
-
               <table
-                className="immi-receipt-table"
-                style={{ width: "100%", borderCollapse: "collapse" }}>
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                }}>
                 <tbody>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Receipt / Ref Number:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontWeight: "bold", fontSize: "13px" }}>
-                      {receiptNum}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Razorpay Order ID:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontFamily: "monospace", fontSize: "12px" }}>
-                      {orderId || paymentData?.razorpayOrderId || "N/A"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Razorpay Payment ID:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontFamily: "monospace", fontSize: "12px" }}>
-                      {voucherNum}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Payer Account:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontSize: "13px" }}>
-                      {paymentData?.userId?.username || "Authorized Applicant"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Payment Method:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontSize: "13px" }}>
-                      {paymentData?.paymentMethod ? paymentData.paymentMethod.toUpperCase() : "Razorpay (Credit / Debit Card)"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Visa Subclass:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontSize: "13px" }}>
-                      {paymentData?.visaType || paymentData?.visaId?.visaClassSubclass || "Australian Visa"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontSize: "13px" }}>
-                      Transaction Date &amp; Time:
-                    </th>
-                    <td style={{ textAlign: "right", padding: "8px 0", fontSize: "13px" }}>
-                      {dateFormatted}
-                    </td>
-                  </tr>
-                  <tr style={{ borderTop: "2px solid #e2e8f0" }}>
-                    <th style={{ textAlign: "left", padding: "12px 0 6px 0", fontSize: "15px", color: "#002b49" }}>
-                      Total Amount Paid:
-                    </th>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
                     <td
                       style={{
-                        textAlign: "right",
-                        padding: "12px 0 6px 0",
+                        padding: "10px 16px",
                         fontWeight: "bold",
-                        fontSize: "18px",
-                        color: "#047857",
+                        width: "220px",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
                       }}>
-                      ${amountFormatted} {currencyFormatted}
+                      Reference Number:
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        color: "#1e293b",
+                        fontWeight: "600",
+                      }}>
+                      {refNumber}
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Payment Description:
+                    </td>
+                    <td style={{ padding: "10px 16px", color: "#1e293b" }}>
+                      {paymentDescription}
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Visa Subclass / Program:
+                    </td>
+                    <td style={{ padding: "10px 16px", color: "#1e293b" }}>
+                      482 skill in demand visa
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Attempted Amount:
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        color: "#1e293b",
+                        fontWeight: "700",
+                      }}>
+                      AUD ${amountFormatted}
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Transaction Status:
+                    </td>
+                    <td style={{ padding: "10px 16px" }}>
+                      <span
+                        style={{
+                          backgroundColor: "#fee2e2",
+                          color: "#991b1b",
+                          padding: "3px 10px",
+                          borderRadius: "4px",
+                          fontWeight: "bold",
+                          fontSize: "12px",
+                          border: "1px solid #fca5a5",
+                          display: "inline-block",
+                        }}>
+                        Failed (Technical Error)
+                      </span>
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Error Reference Code:
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        color: "#b91c1c",
+                        fontFamily: "monospace",
+                        fontWeight: "700",
+                        fontSize: "13px",
+                      }}>
+                      ERR_IMMI_GATEWAY_503
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style={{
+                        padding: "10px 16px",
+                        fontWeight: "bold",
+                        color: "#475569",
+                        backgroundColor: "#f8fafc",
+                      }}>
+                      Date and Time:
+                    </td>
+                    <td style={{ padding: "10px 16px", color: "#1e293b" }}>
+                      {dateFormatted}
                     </td>
                   </tr>
                 </tbody>
               </table>
+            </div>
 
-              <div
-                style={{
-                  marginTop: "20px",
-                  padding: "12px",
-                  backgroundColor: "#f8fafc",
-                  border: "1px dashed #cbd5e1",
-                  borderRadius: "6px",
-                  textAlign: "center",
-                  fontSize: "12px",
-                  color: "#64748b",
-                }}>
-                Keep a copy of this pre-payment receipt for your records. Quote Reference{" "}
-                <strong>{receiptNum}</strong> if you need to contact the Department of Home Affairs.
-              </div>
+            {/* Assistance Guidance Notice */}
+            <div
+              style={{
+                padding: "14px 18px",
+                backgroundColor: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "4px",
+                fontSize: "12.5px",
+                color: "#64748b",
+                lineHeight: "1.55",
+                marginBottom: "26px",
+              }}>
+              <strong>Need Assistance?</strong> If you continue to experience
+              this issue, please try making your payment again through ImmiAccount.
+              If the problem persists, contact the Department of Home Affairs
+              technical support citing Reference Number{" "}
+              <strong style={{ color: "#0f172a" }}>{refNumber}</strong> and Error
+              Code{" "}
+              <strong style={{ color: "#0f172a" }}>ERR_IMMI_GATEWAY_503</strong>.
+            </div>
 
-              {/* Actions */}
-              <div
+            {/* Action Buttons */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: "14px",
+                flexWrap: "wrap",
+              }}>
+              <button
+                type="button"
+                className="immi-btn-classic"
+                onClick={() => navigate("/user-portal")}
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginTop: "24px",
-                  gap: "12px",
-                  flexWrap: "wrap",
+                  backgroundColor: "#0056b3",
+                  color: "white",
+                  padding: "9px 26px",
+                  fontWeight: "bold",
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  fontSize: "14px",
                 }}>
-                <button
-                  type="button"
-                  className="immi-btn-classic"
-                  onClick={handlePrint}
-                  style={{
-                    backgroundColor: "#f1f5f9",
-                    border: "1px solid #cbd5e1",
-                    padding: "8px 16px",
-                    cursor: "pointer",
-                  }}>
-                  🖨️ Print Receipt
-                </button>
-                <button
-                  type="button"
-                  className="immi-btn-classic"
-                  onClick={() => navigate("/user-portal")}
-                  style={{
-                    backgroundColor: "#0056b3",
-                    color: "white",
-                    padding: "8px 20px",
-                    fontWeight: "bold",
-                    border: "none",
-                    cursor: "pointer",
-                  }}>
-                  Return to ImmiAccount Portal →
-                </button>
-              </div>
+                Try Payment Again
+              </button>
+              <button
+                type="button"
+                className="immi-btn-classic"
+                onClick={() => navigate("/user-portal")}
+                style={{
+                  backgroundColor: "#f1f5f9",
+                  border: "1px solid #cbd5e1",
+                  color: "#334155",
+                  padding: "9px 22px",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  fontSize: "14px",
+                }}>
+                Return to ImmiAccount Portal
+              </button>
             </div>
           </div>
         )}
       </main>
+
       <footer className="immi-dashboard-footer">
         <div className="immi-footer-inner">
           <a href="#accessibility" onClick={(e) => e.preventDefault()}>

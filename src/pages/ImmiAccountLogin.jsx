@@ -32,8 +32,15 @@ function ImmiAccountLogin() {
         localStorage.setItem("token", data.token);
         localStorage.setItem("role", data.user.role);
         localStorage.setItem("userId", data.user.id);
-        localStorage.setItem("username", data.user.username);
         localStorage.setItem("user", JSON.stringify(data.user));
+        if (data.user.givenName || data.user.givenNames) {
+          const g = data.user.givenName || data.user.givenNames;
+          localStorage.setItem("givenNames", g);
+          localStorage.setItem("givenName", g);
+        }
+        if (data.user.familyName) {
+          localStorage.setItem("familyName", data.user.familyName);
+        }
 
         if (data.user.role === "user") {
           navigate("/user-portal");

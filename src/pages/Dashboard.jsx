@@ -52,6 +52,7 @@ function Dashboard() {
   const API_URL = import.meta.env.VITE_API_URL;
 
   const [activeTab, setActiveTab] = useState("visas"); // 'overview', 'visas', 'payments', 'accounts', 'companies', 'offer-letters', 'visa-grant'
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Payments state
   const [paymentsList, setPaymentsList] = useState(() => {
@@ -69,6 +70,7 @@ function Dashboard() {
   const [paymentData, setPaymentData] = useState(getInitialPaymentData);
   const [paymentSearch, setPaymentSearch] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState("all");
 
   // Account creation & management state
   const [accountFormData, setAccountFormData] = useState({
@@ -129,7 +131,7 @@ function Dashboard() {
   // Nominations state
   const [nominationsList, setNominationsList] = useState([]);
   const [nominationFormData, setNominationFormData] = useState(
-    getInitialNominationFormData
+    getInitialNominationFormData,
   );
   const [nominationSearch, setNominationSearch] = useState("");
   const [editingNomination, setEditingNomination] = useState(null);
@@ -140,7 +142,7 @@ function Dashboard() {
   // Sponsorships state
   const [sponsorshipsList, setSponsorshipsList] = useState([]);
   const [sponsorshipFormData, setSponsorshipFormData] = useState(
-    getInitialSponsorshipFormData
+    getInitialSponsorshipFormData,
   );
   const [sponsorshipSearch, setSponsorshipSearch] = useState("");
   const [editingSponsorship, setEditingSponsorship] = useState(null);
@@ -406,7 +408,9 @@ function Dashboard() {
         body: JSON.stringify(payload),
       });
       if (response.ok) {
-        alert(`${type === "employe" ? "Employee" : "User"} created successfully!`);
+        alert(
+          `${type === "employe" ? "Employee" : "User"} created successfully!`,
+        );
         setAccountFormData({
           username: "",
           password: "",
@@ -420,7 +424,9 @@ function Dashboard() {
         handleLogout();
       } else {
         const error = await response.json().catch(() => ({}));
-        alert(`Failed to create ${type}: ${error.message || "Failed to create account"}`);
+        alert(
+          `Failed to create ${type}: ${error.message || "Failed to create account"}`,
+        );
       }
     } catch (error) {
       alert("Error creating account");
@@ -711,14 +717,10 @@ function Dashboard() {
       existingOfferLetter?.passportNumber ||
       "";
     const autoNationality =
-      existingVisa?.nationality ||
-      existingOfferLetter?.nationality ||
-      "";
+      existingVisa?.nationality || existingOfferLetter?.nationality || "";
     const autoDob = existingVisa?.dateOfBirth || "";
     const autoEmployer =
-      existingVisa?.employer ||
-      existingOfferLetter?.sponsorName ||
-      "";
+      existingVisa?.employer || existingOfferLetter?.sponsorName || "";
 
     // Auto-select company if matched
     if (existingOfferLetter?.companyId) {
@@ -882,12 +884,27 @@ function Dashboard() {
   };
 
   // Payment handlers
-  const handleVisaSelectForPayment = (e) => {
-    const visaId = e.target.value;
-    if (!visaId) {
+  const handlePaymentTypeChange = (type) => {
+    setPaymentData((prev) => ({
+      ...getInitialPaymentData(),
+      paymentType: type,
+      referenceNumber: prev.referenceNumber || generate8CharRef(),
+      currency: prev.currency || "AUD",
+      issuingOffice: prev.issuingOffice || "New Delhi",
+      status: prev.status || "paid",
+    }));
+  };
+
+  const handleEntitySelectForPayment = (e) => {
+    const selectedId = e.target.value;
+    const currentType = paymentData.paymentType || "visa";
+
+    if (!selectedId) {
       setPaymentData((prev) => ({
         ...prev,
         selectedVisaId: "",
+        selectedSponsorshipId: "",
+        selectedNominationId: "",
         visaType: "",
         name: "",
         internalRef: "",
@@ -895,31 +912,91 @@ function Dashboard() {
       return;
     }
 
-    const visa = visasList.find((v) => v._id === visaId);
-    if (visa) {
-      const applicantName =
-        [visa.givenNames, visa.familyName].filter(Boolean).join(" ") ||
-        "Unknown Applicant";
+    if (currentType === "visa") {
+      const visa = visasList.find((v) => v._id === selectedId);
+      if (visa) {
+        const applicantName =
+          [visa.givenNames, visa.familyName].filter(Boolean).join(" ") ||
+          "Unknown Applicant";
 
-      const extractedVisaType =
-        visa.visaType || visa.visaClassSubclass || "Visitor (subclass 600)";
+        const extractedVisaType =
+          visa.visaType || visa.visaClassSubclass || "Visitor (subclass 600)";
 
-      const extractedInternalRef =
-        visa.trn ||
-        (visa.visaGrantNumber ?
-          `GRN-${visa.visaGrantNumber.slice(-6)}`
-        : `AU-MMS-${Math.floor(1000 + Math.random() * 9000)}`);
+        const extractedInternalRef =
+          visa.trn ||
+          (visa.visaGrantNumber
+            ? `GRN-${visa.visaGrantNumber.slice(-6)}`
+            : `AU-MMS-${Math.floor(1000 + Math.random() * 9000)}`);
 
-      setPaymentData((prev) => ({
-        ...prev,
-        selectedVisaId: visaId,
-        visaType: extractedVisaType,
-        name: applicantName,
-        internalRef: prev.internalRef || extractedInternalRef,
-        referenceNumber: prev.referenceNumber || generate8CharRef(),
-      }));
+        setPaymentData((prev) => ({
+          ...prev,
+          selectedVisaId: selectedId,
+          selectedSponsorshipId: "",
+          selectedNominationId: "",
+          visaType: extractedVisaType,
+          name: applicantName,
+          internalRef: prev.internalRef || extractedInternalRef,
+          referenceNumber: prev.referenceNumber || generate8CharRef(),
+        }));
+      }
+    } else if (currentType === "sponsorship") {
+      const spon = sponsorshipsList.find((s) => s._id === selectedId);
+      if (spon) {
+        const applicantName =
+          [spon.givenName, spon.familyName].filter(Boolean).join(" ") ||
+          "Applicant";
+
+        const extractedProg =
+          spon.visaProgram || "Standard Business Sponsorship (SBS)";
+
+        const extractedInternalRef =
+          spon.sponsorshipTrn ||
+          spon.applicationId ||
+          spon.fileNumber ||
+          `SPON-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        setPaymentData((prev) => ({
+          ...prev,
+          selectedVisaId: "",
+          selectedSponsorshipId: selectedId,
+          selectedNominationId: "",
+          visaType: extractedProg,
+          name: applicantName,
+          internalRef: prev.internalRef || extractedInternalRef,
+          referenceNumber: prev.referenceNumber || generate8CharRef(),
+        }));
+      }
+    } else if (currentType === "nomination") {
+      const nom = nominationsList.find((n) => n._id === selectedId);
+      if (nom) {
+        const nomineeName =
+          [nom.givenName, nom.familyName].filter(Boolean).join(" ") ||
+          "Nominee";
+
+        const extractedProg =
+          nom.visaProgram || "Nomination Application";
+
+        const extractedInternalRef =
+          nom.nominationTrn ||
+          nom.applicationId ||
+          nom.fileNumber ||
+          `NOM-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        setPaymentData((prev) => ({
+          ...prev,
+          selectedVisaId: "",
+          selectedSponsorshipId: "",
+          selectedNominationId: selectedId,
+          visaType: extractedProg,
+          name: nomineeName,
+          internalRef: prev.internalRef || extractedInternalRef,
+          referenceNumber: prev.referenceNumber || generate8CharRef(),
+        }));
+      }
     }
   };
+
+  const handleVisaSelectForPayment = handleEntitySelectForPayment;
 
   const handlePaymentChange = (e) => {
     const { name, value } = e.target;
@@ -940,12 +1017,28 @@ function Dashboard() {
 
   const handleCreatePayment = async (e) => {
     e.preventDefault();
-    if (!paymentData.referenceNumber.trim()) {
+    if (!paymentData.referenceNumber || !paymentData.referenceNumber.trim()) {
       alert("Reference number is required.");
       return;
     }
-    if (!paymentData.name.trim()) {
-      alert("Applicant Name is required.");
+
+    const currentType = paymentData.paymentType || "visa";
+
+    if (currentType === "visa" && !paymentData.selectedVisaId) {
+      alert("Please select a Visa record from the database to link this payment.");
+      return;
+    }
+    if (currentType === "sponsorship" && !paymentData.selectedSponsorshipId) {
+      alert("Please select a Sponsorship record from the database to link this payment.");
+      return;
+    }
+    if (currentType === "nomination" && !paymentData.selectedNominationId) {
+      alert("Please select a Nomination record from the database to link this payment.");
+      return;
+    }
+
+    if (!paymentData.name || !paymentData.name.trim()) {
+      alert("Name is required.");
       return;
     }
     if (
@@ -967,28 +1060,89 @@ function Dashboard() {
       }
       const txnDateObj = new Date(paymentData.transactionDate);
       formattedDate =
-        !isNaN(txnDateObj.getTime()) ?
-          txnDateObj.toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-        : paymentData.transactionDate;
+        !isNaN(txnDateObj.getTime())
+          ? txnDateObj.toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : paymentData.transactionDate;
       rawDateVal = paymentData.transactionDate;
     }
 
-    const selectedVisa = visasList.find(
-      (v) => v._id === paymentData.selectedVisaId,
-    );
+    let selectedVisa = null;
+    let selectedSponsorship = null;
+    let selectedNomination = null;
+    let givenNames = "";
+    let familyName = "";
+
+    if (currentType === "visa") {
+      selectedVisa = visasList.find(
+        (v) => v._id === paymentData.selectedVisaId
+      );
+      if (selectedVisa) {
+        givenNames = selectedVisa.givenNames || "";
+        familyName = selectedVisa.familyName || "";
+      }
+    } else if (currentType === "sponsorship") {
+      selectedSponsorship = sponsorshipsList.find(
+        (s) => s._id === paymentData.selectedSponsorshipId
+      );
+      if (selectedSponsorship) {
+        givenNames = selectedSponsorship.givenName || "";
+        familyName = selectedSponsorship.familyName || "";
+      }
+    } else if (currentType === "nomination") {
+      selectedNomination = nominationsList.find(
+        (n) => n._id === paymentData.selectedNominationId
+      );
+      if (selectedNomination) {
+        givenNames = selectedNomination.givenName || "";
+        familyName = selectedNomination.familyName || "";
+      }
+    }
+
     const payload = {
-      visaId: paymentData.selectedVisaId || null,
-      visa: paymentData.selectedVisaId || null,
-      visaType: paymentData.visaType.trim() || "Visa Application Charge",
-      type: paymentData.visaType.trim() || "Visa Application Charge",
+      paymentType: currentType,
+      visaId: currentType === "visa" ? paymentData.selectedVisaId || null : null,
+      visa: currentType === "visa" ? paymentData.selectedVisaId || null : null,
+      sponsorshipId:
+        currentType === "sponsorship"
+          ? paymentData.selectedSponsorshipId || null
+          : null,
+      sponsorship:
+        currentType === "sponsorship"
+          ? paymentData.selectedSponsorshipId || null
+          : null,
+      nominationId:
+        currentType === "nomination"
+          ? paymentData.selectedNominationId || null
+          : null,
+      nomination:
+        currentType === "nomination"
+          ? paymentData.selectedNominationId || null
+          : null,
+      visaType:
+        paymentData.visaType.trim() ||
+        (currentType === "sponsorship"
+          ? "Sponsorship Application Fee"
+          : currentType === "nomination"
+          ? "Nomination Application Fee"
+          : "Visa Application Charge"),
+      type:
+        paymentData.visaType.trim() ||
+        (currentType === "sponsorship"
+          ? "Sponsorship Application Fee"
+          : currentType === "nomination"
+          ? "Nomination Application Fee"
+          : "Visa Application Charge"),
       name: paymentData.name.trim(),
       applicantName: paymentData.name.trim(),
-      givenNames: selectedVisa ? selectedVisa.givenNames || "" : "",
-      familyName: selectedVisa ? selectedVisa.familyName || "" : "",
+      givenNames:
+        givenNames || (paymentData.name.trim().split(" ")[0] || ""),
+      familyName:
+        familyName ||
+        (paymentData.name.trim().split(" ").slice(1).join(" ") || ""),
       referenceNumber: paymentData.referenceNumber.trim().toUpperCase(),
       ref: paymentData.referenceNumber.trim().toUpperCase(),
       transactionDate: rawDateVal,
@@ -997,7 +1151,11 @@ function Dashboard() {
       office: paymentData.issuingOffice.trim() || "New Delhi",
       internalRef:
         paymentData.internalRef.trim() ||
-        "AU-" + Math.floor(1000 + Math.random() * 9000),
+        (currentType === "sponsorship"
+          ? "SPON-"
+          : currentType === "nomination"
+          ? "NOM-"
+          : "AU-") + Math.floor(1000 + Math.random() * 9000),
       currency: paymentData.currency || "AUD",
       amount: parseFloat(paymentData.amount),
       status: paymentData.status,
@@ -1016,7 +1174,7 @@ function Dashboard() {
 
       if (response.ok) {
         alert(
-          `Payment record "${payload.referenceNumber}" created successfully!`,
+          `Payment record "${payload.referenceNumber}" created successfully!`
         );
         setPaymentData(getInitialPaymentData());
         fetchPayments();
@@ -1118,7 +1276,8 @@ function Dashboard() {
         },
         body: JSON.stringify({
           name: companyFormData.name.trim(),
-          address: companyFormData.address ? companyFormData.address.trim() : "",
+          address:
+            companyFormData.address ? companyFormData.address.trim() : "",
         }),
       });
       const data = await response.json();
@@ -1271,9 +1430,7 @@ function Dashboard() {
       companyId: compId,
       sponsorName: selectedComp ? selectedComp.name : prev.sponsorName,
       sponsorAddress:
-        selectedComp?.address ?
-          selectedComp.address
-        : prev.sponsorAddress,
+        selectedComp?.address ? selectedComp.address : prev.sponsorAddress,
     }));
   };
 
@@ -1512,10 +1669,16 @@ function Dashboard() {
         formData.append("userId", nominationFormData.userId);
       }
       if (nominationFormData.applicationId) {
-        formData.append("applicationId", nominationFormData.applicationId.trim());
+        formData.append(
+          "applicationId",
+          nominationFormData.applicationId.trim(),
+        );
       }
       if (nominationFormData.nominationTrn) {
-        formData.append("nominationTrn", nominationFormData.nominationTrn.trim());
+        formData.append(
+          "nominationTrn",
+          nominationFormData.nominationTrn.trim(),
+        );
       }
       if (nominationFormData.visaProgram) {
         formData.append("visaProgram", nominationFormData.visaProgram.trim());
@@ -1536,7 +1699,10 @@ function Dashboard() {
       if (nominationFormData.file) {
         formData.append("document", nominationFormData.file);
         if (nominationFormData.documentName) {
-          formData.append("documentName", nominationFormData.documentName.trim());
+          formData.append(
+            "documentName",
+            nominationFormData.documentName.trim(),
+          );
         }
       }
 
@@ -1574,7 +1740,11 @@ function Dashboard() {
     }
   };
 
-  const handleUpdateNomination = async (updatedNomination, newFile, newDocName) => {
+  const handleUpdateNomination = async (
+    updatedNomination,
+    newFile,
+    newDocName,
+  ) => {
     setIsUpdatingNomination(true);
     try {
       let response;
@@ -1585,9 +1755,9 @@ function Dashboard() {
         if (newDocName) formData.append("documentName", newDocName.trim());
 
         const uid =
-          typeof updatedNomination.userId === "object"
-            ? updatedNomination.userId?._id
-            : updatedNomination.userId;
+          typeof updatedNomination.userId === "object" ?
+            updatedNomination.userId?._id
+          : updatedNomination.userId;
         if (uid) {
           formData.append("userId", uid);
         } else {
@@ -1595,9 +1765,15 @@ function Dashboard() {
         }
 
         if (updatedNomination.applicationId)
-          formData.append("applicationId", updatedNomination.applicationId.trim());
+          formData.append(
+            "applicationId",
+            updatedNomination.applicationId.trim(),
+          );
         if (updatedNomination.nominationTrn)
-          formData.append("nominationTrn", updatedNomination.nominationTrn.trim());
+          formData.append(
+            "nominationTrn",
+            updatedNomination.nominationTrn.trim(),
+          );
         if (updatedNomination.visaProgram)
           formData.append("visaProgram", updatedNomination.visaProgram.trim());
         if (updatedNomination.fileNumber)
@@ -1607,7 +1783,10 @@ function Dashboard() {
         if (updatedNomination.familyName)
           formData.append("familyName", updatedNomination.familyName.trim());
         if (updatedNomination.approvedDate)
-          formData.append("approvedDate", updatedNomination.approvedDate.trim());
+          formData.append(
+            "approvedDate",
+            updatedNomination.approvedDate.trim(),
+          );
 
         response = await fetch(
           `${API_URL}/api/nominations/${updatedNomination._id}?origin=au`,
@@ -1617,15 +1796,15 @@ function Dashboard() {
               Authorization: `Bearer ${token}`,
             },
             body: formData,
-          }
+          },
         );
       } else {
         const payload = {
           ...updatedNomination,
           userId:
-            typeof updatedNomination.userId === "object"
-              ? updatedNomination.userId?._id
-              : updatedNomination.userId || null,
+            typeof updatedNomination.userId === "object" ?
+              updatedNomination.userId?._id
+            : updatedNomination.userId || null,
         };
         response = await fetch(
           `${API_URL}/api/nominations/${updatedNomination._id}?origin=au`,
@@ -1636,7 +1815,7 @@ function Dashboard() {
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(payload),
-          }
+          },
         );
       }
 
@@ -1657,13 +1836,18 @@ function Dashboard() {
   };
 
   const handleDeleteNomination = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this nomination record?"))
+    if (
+      !window.confirm("Are you sure you want to delete this nomination record?")
+    )
       return;
     try {
-      const response = await fetch(`${API_URL}/api/nominations/${id}?origin=au`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `${API_URL}/api/nominations/${id}?origin=au`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (response.ok) {
         alert("Nomination deleted successfully");
         fetchNominations();
@@ -1691,10 +1875,16 @@ function Dashboard() {
         formData.append("userId", sponsorshipFormData.userId);
       }
       if (sponsorshipFormData.applicationId) {
-        formData.append("applicationId", sponsorshipFormData.applicationId.trim());
+        formData.append(
+          "applicationId",
+          sponsorshipFormData.applicationId.trim(),
+        );
       }
       if (sponsorshipFormData.sponsorshipTrn) {
-        formData.append("sponsorshipTrn", sponsorshipFormData.sponsorshipTrn.trim());
+        formData.append(
+          "sponsorshipTrn",
+          sponsorshipFormData.sponsorshipTrn.trim(),
+        );
       }
       if (sponsorshipFormData.visaProgram) {
         formData.append("visaProgram", sponsorshipFormData.visaProgram.trim());
@@ -1709,13 +1899,19 @@ function Dashboard() {
         formData.append("familyName", sponsorshipFormData.familyName.trim());
       }
       if (sponsorshipFormData.approvedDate) {
-        formData.append("approvedDate", sponsorshipFormData.approvedDate.trim());
+        formData.append(
+          "approvedDate",
+          sponsorshipFormData.approvedDate.trim(),
+        );
       }
 
       if (sponsorshipFormData.file) {
         formData.append("document", sponsorshipFormData.file);
         if (sponsorshipFormData.documentName) {
-          formData.append("documentName", sponsorshipFormData.documentName.trim());
+          formData.append(
+            "documentName",
+            sponsorshipFormData.documentName.trim(),
+          );
         }
       }
 
@@ -1753,7 +1949,11 @@ function Dashboard() {
     }
   };
 
-  const handleUpdateSponsorship = async (updatedSponsorship, newFile, newDocName) => {
+  const handleUpdateSponsorship = async (
+    updatedSponsorship,
+    newFile,
+    newDocName,
+  ) => {
     setIsUpdatingSponsorship(true);
     try {
       let response;
@@ -1764,9 +1964,9 @@ function Dashboard() {
         if (newDocName) formData.append("documentName", newDocName.trim());
 
         const uid =
-          typeof updatedSponsorship.userId === "object"
-            ? updatedSponsorship.userId?._id
-            : updatedSponsorship.userId;
+          typeof updatedSponsorship.userId === "object" ?
+            updatedSponsorship.userId?._id
+          : updatedSponsorship.userId;
         if (uid) {
           formData.append("userId", uid);
         } else {
@@ -1774,9 +1974,15 @@ function Dashboard() {
         }
 
         if (updatedSponsorship.applicationId)
-          formData.append("applicationId", updatedSponsorship.applicationId.trim());
+          formData.append(
+            "applicationId",
+            updatedSponsorship.applicationId.trim(),
+          );
         if (updatedSponsorship.sponsorshipTrn)
-          formData.append("sponsorshipTrn", updatedSponsorship.sponsorshipTrn.trim());
+          formData.append(
+            "sponsorshipTrn",
+            updatedSponsorship.sponsorshipTrn.trim(),
+          );
         if (updatedSponsorship.visaProgram)
           formData.append("visaProgram", updatedSponsorship.visaProgram.trim());
         if (updatedSponsorship.fileNumber)
@@ -1786,7 +1992,10 @@ function Dashboard() {
         if (updatedSponsorship.familyName)
           formData.append("familyName", updatedSponsorship.familyName.trim());
         if (updatedSponsorship.approvedDate)
-          formData.append("approvedDate", updatedSponsorship.approvedDate.trim());
+          formData.append(
+            "approvedDate",
+            updatedSponsorship.approvedDate.trim(),
+          );
 
         response = await fetch(
           `${API_URL}/api/sponsorships/${updatedSponsorship._id}?origin=au`,
@@ -1796,15 +2005,15 @@ function Dashboard() {
               Authorization: `Bearer ${token}`,
             },
             body: formData,
-          }
+          },
         );
       } else {
         const payload = {
           ...updatedSponsorship,
           userId:
-            typeof updatedSponsorship.userId === "object"
-              ? updatedSponsorship.userId?._id
-              : updatedSponsorship.userId || null,
+            typeof updatedSponsorship.userId === "object" ?
+              updatedSponsorship.userId?._id
+            : updatedSponsorship.userId || null,
         };
         response = await fetch(
           `${API_URL}/api/sponsorships/${updatedSponsorship._id}?origin=au`,
@@ -1815,7 +2024,7 @@ function Dashboard() {
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(payload),
-          }
+          },
         );
       }
 
@@ -1836,13 +2045,20 @@ function Dashboard() {
   };
 
   const handleDeleteSponsorship = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this sponsorship record?"))
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this sponsorship record?",
+      )
+    )
       return;
     try {
-      const response = await fetch(`${API_URL}/api/sponsorships/${id}?origin=au`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `${API_URL}/api/sponsorships/${id}?origin=au`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (response.ok) {
         alert("Sponsorship deleted successfully");
         fetchSponsorships();
@@ -1866,59 +2082,121 @@ function Dashboard() {
 
   return (
     <div className="dashboard-container">
+      {/* Mobile Topbar */}
+      <div className="dashboard-mobile-nav">
+        <button
+          type="button"
+          className="dashboard-hamburger-btn"
+          onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
+          aria-label="Toggle Navigation">
+          <span>☰</span>
+        </button>
+        <span className="dashboard-mobile-title">Admin Portal</span>
+        <button
+          type="button"
+          className="dashboard-mobile-logout"
+          onClick={handleLogout}>
+          Logout
+        </button>
+      </div>
+
+      {/* Mobile Sidebar Backdrop */}
+      {isMobileNavOpen && (
+        <div
+          className="dashboard-sidebar-backdrop"
+          onClick={() => setIsMobileNavOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="dashboard-sidebar">
+      <aside className={`dashboard-sidebar ${isMobileNavOpen ? "open" : ""}`}>
         <div className="sidebar-header">
           <h2>Admin Portal</h2>
+          {isMobileNavOpen && (
+            <button
+              type="button"
+              className="dashboard-sidebar-close-btn"
+              onClick={() => setIsMobileNavOpen(false)}
+              aria-label="Close sidebar">
+              ✕
+            </button>
+          )}
         </div>
         <div className="sidebar-menu">
           {role === "admin" && (
             <div
               className={`menu-item ${activeTab === "overview" ? "active" : ""}`}
-              onClick={() => setActiveTab("overview")}>
+              onClick={() => {
+                setActiveTab("overview");
+                setIsMobileNavOpen(false);
+              }}>
               <span>📊</span> Overview
             </div>
           )}
           <div
             className={`menu-item ${activeTab === "visas" ? "active" : ""}`}
-            onClick={() => setActiveTab("visas")}>
+            onClick={() => {
+              setActiveTab("visas");
+              setIsMobileNavOpen(false);
+            }}>
             <span>📄</span> Visa Management
           </div>
           <div
             className={`menu-item ${activeTab === "payments" ? "active" : ""}`}
-            onClick={() => setActiveTab("payments")}>
+            onClick={() => {
+              setActiveTab("payments");
+              setIsMobileNavOpen(false);
+            }}>
             <span>💳</span> Payments
           </div>
           <div
             className={`menu-item ${activeTab === "accounts" ? "active" : ""}`}
-            onClick={() => setActiveTab("accounts")}>
+            onClick={() => {
+              setActiveTab("accounts");
+              setIsMobileNavOpen(false);
+            }}>
             <span>👥</span> Account Management
           </div>
           {role === "admin" && (
             <>
               <div
                 className={`menu-item ${activeTab === "companies" ? "active" : ""}`}
-                onClick={() => setActiveTab("companies")}>
+                onClick={() => {
+                  setActiveTab("companies");
+                  setIsMobileNavOpen(false);
+                }}>
                 <span>🏢</span> Companies
               </div>
               <div
                 className={`menu-item ${activeTab === "offer-letters" ? "active" : ""}`}
-                onClick={() => setActiveTab("offer-letters")}>
+                onClick={() => {
+                  setActiveTab("offer-letters");
+                  setIsMobileNavOpen(false);
+                }}>
                 <span>✉️</span> Offer Letters
               </div>
               <div
                 className={`menu-item ${activeTab === "visa-grant" ? "active" : ""}`}
-                onClick={() => setActiveTab("visa-grant")}>
+                onClick={() => {
+                  setActiveTab("visa-grant");
+                  setIsMobileNavOpen(false);
+                }}>
                 <span>🪪</span> Visa Grant Letter
               </div>
               <div
                 className={`menu-item ${activeTab === "nominations" ? "active" : ""}`}
-                onClick={() => setActiveTab("nominations")}>
+                onClick={() => {
+                  setActiveTab("nominations");
+                  setIsMobileNavOpen(false);
+                }}>
                 <span>📑</span> Nominations
               </div>
               <div
                 className={`menu-item ${activeTab === "sponsorships" ? "active" : ""}`}
-                onClick={() => setActiveTab("sponsorships")}>
+                onClick={() => {
+                  setActiveTab("sponsorships");
+                  setIsMobileNavOpen(false);
+                }}>
                 <span>🤝</span> Sponsorships
               </div>
             </>
@@ -2137,6 +2415,8 @@ function Dashboard() {
         {activeTab === "overview" && role === "admin" && (
           <OverviewTab
             visasList={visasList}
+            sponsorshipsList={sponsorshipsList}
+            nominationsList={nominationsList}
             fetchVisas={fetchVisas}
             handleDeleteVisa={handleDeleteVisa}
             paymentsList={paymentsList}
@@ -2146,6 +2426,8 @@ function Dashboard() {
             setPaymentSearch={setPaymentSearch}
             paymentStatusFilter={paymentStatusFilter}
             setPaymentStatusFilter={setPaymentStatusFilter}
+            paymentTypeFilter={paymentTypeFilter}
+            setPaymentTypeFilter={setPaymentTypeFilter}
             handleTogglePaymentStatus={handleTogglePaymentStatus}
             handleDeletePayment={handleDeletePayment}
             companiesList={companiesList}
@@ -2230,7 +2512,11 @@ function Dashboard() {
             setPaymentData={setPaymentData}
             handleCreatePayment={handleCreatePayment}
             visasList={visasList}
-            handleVisaSelectForPayment={handleVisaSelectForPayment}
+            sponsorshipsList={sponsorshipsList}
+            nominationsList={nominationsList}
+            handleVisaSelectForPayment={handleEntitySelectForPayment}
+            handleEntitySelectForPayment={handleEntitySelectForPayment}
+            handlePaymentTypeChange={handlePaymentTypeChange}
             handlePaymentChange={handlePaymentChange}
             paymentsList={paymentsList}
             usersList={usersList}
@@ -2239,6 +2525,8 @@ function Dashboard() {
             setPaymentSearch={setPaymentSearch}
             paymentStatusFilter={paymentStatusFilter}
             setPaymentStatusFilter={setPaymentStatusFilter}
+            paymentTypeFilter={paymentTypeFilter}
+            setPaymentTypeFilter={setPaymentTypeFilter}
             handleTogglePaymentStatus={handleTogglePaymentStatus}
             handleDeletePayment={handleDeletePayment}
           />

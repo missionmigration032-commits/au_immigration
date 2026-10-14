@@ -99,7 +99,10 @@ export const getInitialVisaGrantFormData = () => ({
 });
 
 export const getInitialPaymentData = () => ({
+  paymentType: "visa", // "visa" | "sponsorship" | "nomination"
   selectedVisaId: "",
+  selectedSponsorshipId: "",
+  selectedNominationId: "",
   visaType: "",
   name: "",
   referenceNumber: generate8CharRef(),
@@ -122,11 +125,22 @@ export const formatApplicantFullName = (given, family) => {
   return fullName;
 };
 
+// Helper to determine payment category
+export const getPaymentCategory = (payment) => {
+  if (!payment) return "visa";
+  if (payment.paymentType) return payment.paymentType.toLowerCase().trim();
+  if (payment.sponsorshipId || payment.sponsorship) return "sponsorship";
+  if (payment.nominationId || payment.nomination) return "nomination";
+  return "visa";
+};
+
 // Helper to format payment applicant name as: given name + family name
 export const getPaymentApplicantDisplayName = (
   payment,
   visasList = [],
-  usersList = []
+  usersList = [],
+  sponsorshipsList = [],
+  nominationsList = []
 ) => {
   if (!payment) return "—";
 
@@ -150,7 +164,75 @@ export const getPaymentApplicantDisplayName = (
     }
   }
 
-  // 3. Populated visa object
+  // 3. Populated sponsorshipId object
+  if (payment.sponsorshipId && typeof payment.sponsorshipId === "object") {
+    if (payment.sponsorshipId.givenName || payment.sponsorshipId.familyName) {
+      const fn = formatApplicantFullName(
+        payment.sponsorshipId.givenName,
+        payment.sponsorshipId.familyName,
+      );
+      if (fn) return fn;
+    }
+  }
+
+  // 4. Populated nominationId object
+  if (payment.nominationId && typeof payment.nominationId === "object") {
+    if (payment.nominationId.givenName || payment.nominationId.familyName) {
+      const fn = formatApplicantFullName(
+        payment.nominationId.givenName,
+        payment.nominationId.familyName,
+      );
+      if (fn) return fn;
+    }
+  }
+
+  // 5. Linked sponsorship in sponsorshipsList by sponsorshipId
+  const sId =
+    payment.sponsorshipId ?
+      typeof payment.sponsorshipId === "object" ?
+        payment.sponsorshipId._id
+      : payment.sponsorshipId
+    : payment.sponsorship && typeof payment.sponsorship === "object" ?
+        payment.sponsorship._id
+    : payment.sponsorship;
+
+  if (sId && Array.isArray(sponsorshipsList) && sponsorshipsList.length > 0) {
+    const linkedSpon = sponsorshipsList.find(
+      (s) => String(s._id) === String(sId)
+    );
+    if (linkedSpon && (linkedSpon.givenName || linkedSpon.familyName)) {
+      const fn = formatApplicantFullName(
+        linkedSpon.givenName,
+        linkedSpon.familyName
+      );
+      if (fn) return fn;
+    }
+  }
+
+  // 6. Linked nomination in nominationsList by nominationId
+  const nId =
+    payment.nominationId ?
+      typeof payment.nominationId === "object" ?
+        payment.nominationId._id
+      : payment.nominationId
+    : payment.nomination && typeof payment.nomination === "object" ?
+        payment.nomination._id
+    : payment.nomination;
+
+  if (nId && Array.isArray(nominationsList) && nominationsList.length > 0) {
+    const linkedNom = nominationsList.find(
+      (n) => String(n._id) === String(nId)
+    );
+    if (linkedNom && (linkedNom.givenName || linkedNom.familyName)) {
+      const fn = formatApplicantFullName(
+        linkedNom.givenName,
+        linkedNom.familyName
+      );
+      if (fn) return fn;
+    }
+  }
+
+  // 7. Populated visa object
   if (payment.visa && typeof payment.visa === "object") {
     if (payment.visa.givenNames || payment.visa.familyName) {
       const fn = formatApplicantFullName(
@@ -161,7 +243,7 @@ export const getPaymentApplicantDisplayName = (
     }
   }
 
-  // 4. Linked visa in visasList by visaId
+  // 8. Linked visa in visasList by visaId
   const vId =
     payment.visaId ?
       typeof payment.visaId === "object" ?
@@ -181,11 +263,15 @@ export const getPaymentApplicantDisplayName = (
     }
   }
 
-  // 5. Check populated userId object
+  // 9. Check populated userId object
   if (payment.userId && typeof payment.userId === "object") {
-    if (payment.userId.givenNames || payment.userId.familyName) {
+    if (
+      payment.userId.givenName ||
+      payment.userId.givenNames ||
+      payment.userId.familyName
+    ) {
       const fn = formatApplicantFullName(
-        payment.userId.givenNames,
+        payment.userId.givenName || payment.userId.givenNames,
         payment.userId.familyName,
       );
       if (fn) return fn;
@@ -195,7 +281,7 @@ export const getPaymentApplicantDisplayName = (
     }
   }
 
-  // 6. Match userId with visasList (find visa belonging to this user)
+  // 10. Match userId with visasList (find visa belonging to this user)
   const uId =
     payment.userId ?
       typeof payment.userId === "object" ?
@@ -217,19 +303,33 @@ export const getPaymentApplicantDisplayName = (
     }
   }
 
-  // 7. Match userId with usersList
+  // 11. Match userId with usersList
   if (uId && Array.isArray(usersList) && usersList.length > 0) {
     const linkedUser = usersList.find((u) => String(u._id) === String(uId));
     if (linkedUser) {
+      if (
+        linkedUser.givenName ||
+        linkedUser.givenNames ||
+        linkedUser.familyName
+      ) {
+        const fn = formatApplicantFullName(
+          linkedUser.givenName || linkedUser.givenNames,
+          linkedUser.familyName,
+        );
+        if (fn) return fn;
+      }
       if (linkedUser.name || linkedUser.fullName)
         return linkedUser.name || linkedUser.fullName;
-      if (linkedUser.username) return linkedUser.username;
     }
   }
 
-  // 8. Raw name string
+  // 12. Raw name string
   const raw = payment.name || payment.applicantName || "";
   if (raw) {
+    if (raw.includes("@")) {
+      const clean = raw.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+      if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
     if (raw.includes(",")) {
       const [last, ...firstParts] = raw.split(",");
       const first = firstParts.join(" ").trim();
@@ -242,13 +342,14 @@ export const getPaymentApplicantDisplayName = (
     return raw;
   }
 
-  // 9. Populated userId username
+  // 13. Populated userId username (clean username, never show @handle or trailing digits)
   if (
     payment.userId &&
     typeof payment.userId === "object" &&
     payment.userId.username
   ) {
-    return payment.userId.username;
+    const clean = payment.userId.username.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
+    if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
   }
 
   return "—";
@@ -351,7 +452,7 @@ export const getOfferLetterMergedData = (ol) => {
 
 export const COMMON_VISA_PROGRAMS = [
   "Employer Nomination",
-  "Temporary Skill Shortage visa (subclass 482)",
+  "Skills in Demand visa (subclass 482)",
   "Skilled Employer Sponsored Regional (subclass 494)",
   "Skilled Nominated visa (subclass 190)",
   "Skilled Work Regional (subclass 491)",
@@ -375,7 +476,7 @@ export const getInitialNominationFormData = () => ({
 
 export const COMMON_SPONSORSHIP_PROGRAMS = [
   "Standard Business Sponsorship",
-  "Temporary Skill Shortage visa (subclass 482)",
+  "Skills in Demand visa (subclass 482)",
   "Skilled Employer Sponsored Regional (subclass 494)",
   "Temporary Work (Short Stay Specialist) visa (subclass 400)",
   "Training visa (subclass 407)",

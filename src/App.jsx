@@ -26,8 +26,8 @@ function App() {
   const isImmiLogin = location.pathname.startsWith('/lusc/login');
   const isUserPortal = location.pathname.startsWith('/user-portal');
   const isDashboard = location.pathname.startsWith('/dashboard');
-  const isPaymentSuccess = location.pathname.startsWith('/payment/success');
-  const isPaymentCancel = location.pathname.startsWith('/payment/cancel');
+  const isPaymentSuccess = location.pathname.startsWith('/payment/success') || location.pathname.startsWith('/payment-success');
+  const isPaymentCancel = location.pathname.startsWith('/payment/cancel') || location.pathname.startsWith('/payment-cancel');
   const isStandalone = isVevo || isImmiLogin || isUserPortal || isDashboard || isPaymentSuccess || isPaymentCancel;
 
   return (
@@ -46,9 +46,11 @@ function App() {
           <Route path="/evo/firstParty" element={<VevoFirstParty />} />
           <Route path="/lusc/login" element={<ImmiAccountLogin />} />
           
-          {/* Payment Routes (Razorpay) */}
+          {/* Payment Routes (Stripe) */}
           <Route path="/payment/success" element={<PaymentSuccess />} />
+          <Route path="/payment-success" element={<PaymentSuccess />} />
           <Route path="/payment/cancel" element={<PaymentCancel />} />
+          <Route path="/payment-cancel" element={<PaymentCancel />} />
           
           {/* Protected Routes */}
           <Route 
