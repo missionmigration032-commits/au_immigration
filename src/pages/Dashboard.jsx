@@ -49,7 +49,7 @@ function Dashboard() {
   const role = localStorage.getItem("role");
   const token = localStorage.getItem("token");
   const navigate = useNavigate();
-  const API_URL = import.meta.env.VITE_API_URL;
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   const [activeTab, setActiveTab] = useState("visas"); // 'overview', 'visas', 'payments', 'accounts', 'companies', 'offer-letters', 'visa-grant'
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -80,6 +80,7 @@ function Dashboard() {
     givenName: "",
     familyName: "",
     passport: "",
+    dob: "",
   });
   const [userSearch, setUserSearch] = useState("");
   const [editingUser, setEditingUser] = useState(null);
@@ -350,11 +351,17 @@ function Dashboard() {
   };
 
   useEffect(() => {
-    if (role === "admin" || role === "employe") {
+    const activeToken = localStorage.getItem("token") || token;
+    const activeRole = localStorage.getItem("role") || role;
+    if (!activeToken) {
+      navigate("/lusc/login");
+      return;
+    }
+    if (activeRole === "admin" || activeRole === "employe") {
       fetchUsers();
       fetchVisas();
       fetchPayments();
-      if (role === "admin") {
+      if (activeRole === "admin") {
         fetchCompanies();
         fetchOfferLetters();
         fetchNominations();
@@ -398,6 +405,9 @@ function Dashboard() {
       if (accountFormData.passport.trim()) {
         payload.passport = accountFormData.passport.trim();
       }
+      if (accountFormData.dob && accountFormData.dob.trim()) {
+        payload.dob = accountFormData.dob.trim();
+      }
 
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
@@ -418,6 +428,7 @@ function Dashboard() {
           givenName: "",
           familyName: "",
           passport: "",
+          dob: "",
         });
         fetchUsers();
       } else if (response.status === 401) {
@@ -456,6 +467,9 @@ function Dashboard() {
       }
       if (editingUser.passport !== undefined) {
         payload.passport = editingUser.passport.trim();
+      }
+      if (editingUser.dob !== undefined) {
+        payload.dob = editingUser.dob.trim();
       }
       if (editingUser.password && editingUser.password.trim()) {
         payload.password = editingUser.password.trim();

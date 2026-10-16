@@ -114,9 +114,14 @@ export const getInitialPaymentData = () => ({
   status: "paid",
 });
 
-// Format full name as given name + family name (e.g. "Ankit Kumar")
+// Format full name as given name + family name (if family name not present, don't add any family name)
 export const formatApplicantFullName = (given, family) => {
-  const parts = [given, family].map((s) => (s || "").trim()).filter(Boolean);
+  const g = (given || "").trim();
+  let f = (family || "").trim();
+  if (g && f && g.toLowerCase().endsWith(f.toLowerCase())) {
+    f = "";
+  }
+  const parts = [g, f].filter(Boolean);
   if (parts.length === 0) return "";
   const fullName = parts.join(" ");
   if (fullName === fullName.toLowerCase()) {

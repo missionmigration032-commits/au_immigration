@@ -93,33 +93,45 @@ function UserPortal({ initialSection }) {
   });
   const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
 
-  // Format name in name section (remove family name)
+  // Helper to title-case words (e.g. "aman" -> "Aman", "john doe" -> "John Doe")
+  const toTitleCase = (str) => {
+    if (!str || typeof str !== "string") return "";
+    return str
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+  };
+
+  // Format name: given name + family name (if family name not present, don't add any family name)
   const formatApplicantFullName = (given, family) => {
     let cleanGiven = (given || "").split("@")[0].replace(/[0-9_.-]+$/, "").trim();
     let cleanFamily = (family || "").split("@")[0].replace(/[0-9_.-]+$/, "").trim();
 
+    cleanGiven = cleanGiven ? toTitleCase(cleanGiven) : "";
+    cleanFamily = cleanFamily ? toTitleCase(cleanFamily) : "";
+
     if (
-      cleanFamily.toLowerCase() === "deep" ||
-      (cleanFamily && cleanGiven.toLowerCase().endsWith(cleanFamily.toLowerCase()))
+      cleanGiven &&
+      cleanFamily &&
+      cleanGiven.toLowerCase().endsWith(cleanFamily.toLowerCase())
     ) {
       cleanFamily = "";
     }
 
-    if (cleanGiven.toLowerCase().endsWith(" deep")) {
-      cleanGiven = cleanGiven.replace(/\s+deep$/i, "").trim();
+    if (cleanGiven && cleanFamily) {
+      return `${cleanGiven} ${cleanFamily}`;
     }
-
-    // In the name section remove the family name
     if (cleanGiven) {
-      return cleanGiven.replace(/\b\w/g, (c) => c.toUpperCase());
+      return cleanGiven;
     }
     if (cleanFamily) {
-      return cleanFamily.replace(/\b\w/g, (c) => c.toUpperCase());
+      return cleanFamily;
     }
     return "";
   };
 
-  // Extract given name and family name from local storage as requested
+  // Extract given name and family name from local storage as requested: given name + family name
   const getLocalStorageFullName = () => {
     let uObj = {};
     try {
@@ -143,25 +155,28 @@ function UserPortal({ initialSection }) {
       ""
     ).trim();
 
+    let cleanGiven = given ? given.split("@")[0].replace(/[0-9_.-]+$/, "").trim() : "";
+    let cleanFamily = family ? family.split("@")[0].replace(/[0-9_.-]+$/, "").trim() : "";
+
+    cleanGiven = cleanGiven ? toTitleCase(cleanGiven) : "";
+    cleanFamily = cleanFamily ? toTitleCase(cleanFamily) : "";
+
     if (
-      family.toLowerCase() === "deep" ||
-      (family && given.toLowerCase().endsWith(family.toLowerCase()))
+      cleanGiven &&
+      cleanFamily &&
+      cleanGiven.toLowerCase().endsWith(cleanFamily.toLowerCase())
     ) {
-      family = "";
-      try {
-        localStorage.removeItem("familyName");
-        localStorage.removeItem("lastName");
-      } catch (e) {}
+      cleanFamily = "";
     }
 
-    if (given.toLowerCase().endsWith(" deep")) {
-      given = given.replace(/\s+deep$/i, "").trim();
+    if (cleanGiven && cleanFamily) {
+      return `${cleanGiven} ${cleanFamily}`;
     }
-
-    // In the name section remove the family name
-    if (given) {
-      const clean = given.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
-      return clean.replace(/\s+deep$/i, "").replace(/\b\w/g, (c) => c.toUpperCase());
+    if (cleanGiven) {
+      return cleanGiven;
+    }
+    if (cleanFamily) {
+      return cleanFamily;
     }
 
     const uName =
@@ -172,7 +187,7 @@ function UserPortal({ initialSection }) {
 
     if (uName) {
       const clean = uName.split("@")[0].replace(/[0-9_.-]+$/, "").trim();
-      if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1);
+      if (clean) return toTitleCase(clean);
     }
 
     return "";
@@ -437,7 +452,15 @@ function UserPortal({ initialSection }) {
       }
     }
 
-    return { givenNames: gn, familyName: fn, email: em };
+    // 4. Date of birth
+    let udob =
+      localStorage.getItem("dob") ||
+      localStorage.getItem("dateOfBirth") ||
+      uObj.dob ||
+      uObj.dateOfBirth ||
+      "";
+
+    return { givenNames: gn, familyName: fn, email: em, dob: udob };
   }, []);
 
   const [manageAccountTab, setManageAccountTab] = useState("Summary");
@@ -448,6 +471,7 @@ function UserPortal({ initialSection }) {
     () => initialUserDetails.familyName,
   );
   const [userEmail, setUserEmail] = useState(() => initialUserDetails.email);
+  const [userDob, setUserDob] = useState(() => initialUserDetails.dob);
   const [userAlertsPref, setUserAlertsPref] = useState(true);
   const [editGivenNames, setEditGivenNames] = useState(
     () => initialUserDetails.givenNames,
@@ -455,6 +479,7 @@ function UserPortal({ initialSection }) {
   const [editFamilyName, setEditFamilyName] = useState(
     () => initialUserDetails.familyName,
   );
+  const [editDob, setEditDob] = useState(() => initialUserDetails.dob);
   const [editEmail, setEditEmail] = useState(() => initialUserDetails.email);
   const [editConfirmEmail, setEditConfirmEmail] = useState(
     () => initialUserDetails.email,
@@ -472,31 +497,18 @@ function UserPortal({ initialSection }) {
   );
   const [accountMessage, setAccountMessage] = useState("");
 
-  // Helper to title-case words (e.g. "aman" -> "Aman", "john doe" -> "John Doe")
-  const toTitleCase = (str) => {
-    if (!str || typeof str !== "string") return "";
-    return str
-      .trim()
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(" ");
-  };
-
-  // Helper to format primary applicant name (show given name from localStorage)
+  // Helper to format primary applicant name: given name + family name (if family name not present, don't add any family name)
   const formatPrimaryApplicantName = (item) => {
-    // 1. In the primary applicant show the given name from the localstorage
-    const localGiven = getLocalStorageFullName();
-    if (localGiven) {
-      return localGiven;
+    if (!item) {
+      const local = getLocalStorageFullName();
+      return local || "—";
     }
-
-    if (!item) return "—";
 
     let family =
       item.familyName ||
       item.family_name ||
       item.lastName ||
-      (typeof item.userId === "object" ? item.userId?.familyName : "") ||
+      (typeof item.userId === "object" ? item.userId?.familyName || item.userId?.lastName : "") ||
       "";
 
     let given =
@@ -504,25 +516,53 @@ function UserPortal({ initialSection }) {
       item.givenName ||
       item.given_name ||
       item.firstName ||
-      (typeof item.userId === "object" ? item.userId?.givenName : "") ||
+      (typeof item.userId === "object" ? item.userId?.givenName || item.userId?.givenNames : "") ||
       "";
 
-    if (
-      family.toLowerCase() === "deep" ||
-      (family && given.toLowerCase().endsWith(family.toLowerCase()))
-    ) {
-      family = "";
-    }
-    if (given.toLowerCase().endsWith(" deep")) {
-      given = given.replace(/\s+deep$/i, "").trim();
+    if (typeof family === "string") family = family.trim();
+    if (typeof given === "string") given = given.trim();
+
+    // If family is not on item, check if user profile / local storage has familyName
+    if (!family) {
+      const storedFamily = (
+        userFamilyName ||
+        localStorage.getItem("familyName") ||
+        localStorage.getItem("lastName") ||
+        ""
+      ).trim();
+      if (storedFamily) {
+        family = storedFamily;
+      }
     }
 
-    // In the name section remove the family name
-    if (given && given.trim()) {
-      return toTitleCase(given);
+    // If given is not on item, check if user profile / local storage has givenName
+    if (!given) {
+      const storedGiven = (
+        userGivenNames ||
+        localStorage.getItem("givenNames") ||
+        localStorage.getItem("givenName") ||
+        ""
+      ).trim();
+      if (storedGiven) {
+        given = storedGiven;
+      }
     }
-    if (family && family.trim()) {
-      return toTitleCase(family);
+
+    const cleanG = given ? toTitleCase(given) : "";
+    let cleanF = family ? toTitleCase(family) : "";
+
+    if (cleanG && cleanF && cleanG.toLowerCase().endsWith(cleanF.toLowerCase())) {
+      cleanF = "";
+    }
+
+    if (cleanG && cleanF) {
+      return `${cleanG} ${cleanF}`;
+    }
+    if (cleanG) {
+      return cleanG;
+    }
+    if (cleanF) {
+      return cleanF;
     }
 
     // Check full name or applicantName fields
@@ -538,13 +578,15 @@ function UserPortal({ initialSection }) {
     if (full && typeof full === "string" && full.trim()) {
       const trimmed = full.trim();
       if (trimmed.includes(",")) {
-        // e.g. "DEEP, Aman" -> "Aman Deep"
+        // e.g. "SHARMA, Oumesh" -> "Oumesh Sharma"
         const [famPart, ...givParts] = trimmed.split(",");
         const givStr = givParts.join(",").trim();
-        if (givStr) {
-          return `${toTitleCase(givStr)} ${toTitleCase(famPart)}`;
+        const famStr = famPart.trim();
+        if (givStr && famStr) {
+          return `${toTitleCase(givStr)} ${toTitleCase(famStr)}`;
         }
-        return toTitleCase(famPart);
+        if (givStr) return toTitleCase(givStr);
+        if (famStr) return toTitleCase(famStr);
       }
       return toTitleCase(trimmed);
     }
@@ -557,16 +599,11 @@ function UserPortal({ initialSection }) {
       }
     }
 
-    // Fallback: Check if user profile has given and/or family name
-    const storedGiven =
-      userGivenNames || localStorage.getItem("givenNames") || "";
-    const storedFamily =
-      userFamilyName || localStorage.getItem("familyName") || "";
-    if (storedGiven && storedFamily) {
-      return `${toTitleCase(storedGiven)} ${toTitleCase(storedFamily)}`;
+    // Fallback: Check local storage or user profile
+    const local = getLocalStorageFullName();
+    if (local) {
+      return local;
     }
-    if (storedGiven) return toTitleCase(storedGiven);
-    if (storedFamily) return toTitleCase(storedFamily);
 
     const uName = storedUsername || localStorage.getItem("username") || "";
     if (uName && uName !== "User" && !uName.includes("@")) {
@@ -645,7 +682,53 @@ function UserPortal({ initialSection }) {
   });
   const [prePaySuccessVoucher, setPrePaySuccessVoucher] = useState(null);
 
-  // Helper to extract given name and family name from user object in localStorage
+  const formatDateDisplay = (dob) => {
+    let targetDob = dob;
+    if (!targetDob || targetDob === "1995-08-26" || targetDob === "26 Aug 1995") {
+      let uObj = {};
+      try {
+        uObj = JSON.parse(localStorage.getItem("user") || "{}");
+      } catch (e) {}
+      targetDob =
+        localStorage.getItem("dob") ||
+        localStorage.getItem("dateOfBirth") ||
+        uObj.dob ||
+        uObj.dateOfBirth;
+      if (!targetDob) return "18 Nov 2002";
+    }
+    if (/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/.test(targetDob)) return targetDob;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(targetDob)) {
+      const [y, m, d] = targetDob.split("-");
+      const months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const mIdx = parseInt(m, 10) - 1;
+      if (mIdx >= 0 && mIdx < 12) {
+        return `${parseInt(d, 10)} ${months[mIdx]} ${y}`;
+      }
+    }
+    const d = new Date(targetDob);
+    if (!isNaN(d.getTime())) {
+      const day = d.getDate();
+      const month = d.toLocaleString("en-GB", { month: "short" });
+      const year = d.getFullYear();
+      return `${day} ${month} ${year}`;
+    }
+    return targetDob;
+  };
+
+  // Helper to extract given name, family name and dob from user object in localStorage
   const getUserNamesFromStorage = () => {
     let uObj = {};
     try {
@@ -669,31 +752,32 @@ function UserPortal({ initialSection }) {
       ""
     ).trim();
 
+    let dob = (
+      uObj.dob ||
+      uObj.dateOfBirth ||
+      localStorage.getItem("dob") ||
+      localStorage.getItem("dateOfBirth") ||
+      ""
+    ).trim();
+
     if (
-      familyName.toLowerCase() === "deep" ||
-      (familyName && givenName.toLowerCase().endsWith(familyName.toLowerCase()))
+      familyName &&
+      givenName &&
+      givenName.toLowerCase().endsWith(familyName.toLowerCase())
     ) {
       familyName = "";
-      try {
-        localStorage.removeItem("familyName");
-        localStorage.removeItem("lastName");
-      } catch (e) {}
     }
 
-    if (givenName.toLowerCase().endsWith(" deep")) {
-      givenName = givenName.replace(/\s+deep$/i, "").trim();
-    }
-
-    if (givenName || familyName) {
-      return { givenName, familyName };
+    if (givenName || familyName || dob) {
+      return { givenName, familyName, dob };
     }
 
     const fallbackUsername = (localStorage.getItem("username") || uObj.username || "").trim();
     if (fallbackUsername && !fallbackUsername.includes("@")) {
-      return { givenName: fallbackUsername.replace(/\s+deep$/i, ""), familyName: "" };
+      return { givenName: fallbackUsername.replace(/\s+deep$/i, ""), familyName: "", dob: "" };
     }
 
-    return { givenName: "Aman", familyName: "" };
+    return { givenName: "Aman", familyName: "", dob: "" };
   };
 
   // Make Payments Section State (Exact match to Home Affairs Pre-pay reference)
@@ -706,7 +790,7 @@ function UserPortal({ initialSection }) {
       processingOffice: "New Delhi",
       familyName: userNames.familyName || "",
       givenNames: userNames.givenName || "Aman",
-      dateOfBirth: "18 Nov 2002",
+      dateOfBirth: userNames.dob ? formatDateDisplay(userNames.dob) : "18 Nov 2002",
       visaSubclass: "482 skill in demand visa",
       amount: "",
       backendAmount: "",
@@ -725,7 +809,7 @@ function UserPortal({ initialSection }) {
       processingOffice: "New Delhi",
       familyName: userNames.familyName || "",
       givenNames: userNames.givenName || "Aman",
-      dateOfBirth: "18 Nov 2002",
+      dateOfBirth: userNames.dob ? formatDateDisplay(userNames.dob) : "18 Nov 2002",
       visaSubclass: "482 skill in demand visa",
       amount: "",
       backendAmount: "",
@@ -765,19 +849,6 @@ function UserPortal({ initialSection }) {
     csc: "",
   });
 
-  const formatDateDisplay = (dob) => {
-    if (!dob || dob === "1995-08-26" || dob === "26 Aug 1995") return "18 Nov 2002";
-    if (/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/.test(dob)) return dob;
-    const d = new Date(dob);
-    if (!isNaN(d.getTime())) {
-      const day = d.getDate();
-      const month = d.toLocaleString("en-GB", { month: "short" });
-      const year = d.getFullYear();
-      return `${day} ${month} ${year}`;
-    }
-    return dob;
-  };
-
   const calculateFeeForSubclass = (subclass) => {
     const text = (subclass || "").toLowerCase();
     if (text.includes("600") || text.includes("visitor")) return "145.00";
@@ -809,7 +880,16 @@ function UserPortal({ initialSection }) {
 
   // Fetch Visas & Nominations for the logged in user
   const fetchUserApplications = async () => {
-    if (!token || !userId) {
+    const activeToken = localStorage.getItem("token") || token;
+    let activeUserId = localStorage.getItem("userId") || userId;
+    if (!activeUserId) {
+      try {
+        const u = JSON.parse(localStorage.getItem("user") || "{}");
+        activeUserId = u.id || u._id || "";
+      } catch (e) {}
+    }
+
+    if (!activeToken || !activeUserId) {
       setIsLoading(false);
       return;
     }
@@ -817,10 +897,10 @@ function UserPortal({ initialSection }) {
     try {
       // 1. Fetch Visas
       const response = await fetch(
-        `${API_URL}/api/visas/user/${userId}?origin=au`,
+        `${API_URL}/api/visas/user/${activeUserId}?origin=au`,
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${activeToken}`,
           },
         },
       );
@@ -892,7 +972,8 @@ function UserPortal({ initialSection }) {
   };
 
   useEffect(() => {
-    if (!token) {
+    const activeToken = localStorage.getItem("token") || token;
+    if (!activeToken) {
       navigate("/lusc/login");
       return;
     }
@@ -949,6 +1030,9 @@ function UserPortal({ initialSection }) {
           setEditEmail(vEmail);
           setEditConfirmEmail(vEmail);
         }
+      }
+      if (!localStorage.getItem("dob") && !localStorage.getItem("dateOfBirth") && primaryApp.dateOfBirth) {
+        setUserDob(primaryApp.dateOfBirth);
       }
     }
   }, [allVisas, nominations, sponsorships]);
@@ -1517,7 +1601,9 @@ function UserPortal({ initialSection }) {
     }
     givName = givName || userNames.givenName || "Aman";
 
-    const dob = formatDateDisplay(linkedVisa?.dateOfBirth || "2002-11-18");
+    const dob = formatDateDisplay(
+      userNames.dob || linkedVisa?.dateOfBirth || "2002-11-18",
+    );
 
     let subclassVal = "482 skill in demand visa";
     if (linkedVisa?.visaClassSubclass) {
@@ -1635,7 +1721,9 @@ function UserPortal({ initialSection }) {
       }
       givName = givName || userNames.givenName || "Aman";
 
-      const dob = formatDateDisplay(activeVisa?.dateOfBirth || "2002-11-18");
+      const dob = formatDateDisplay(
+        userNames.dob || activeVisa?.dateOfBirth || "2002-11-18",
+      );
       let subVal = "482 skill in demand visa";
       if (activeVisa?.visaClassSubclass) {
         subVal = activeVisa.visaClassSubclass;
@@ -2462,6 +2550,7 @@ function UserPortal({ initialSection }) {
                           onClick={() => {
                             setEditGivenNames(userGivenNames);
                             setEditFamilyName(userFamilyName);
+                            setEditDob(userDob);
                             setManageAccountTab("Account details");
                           }}>
                           (edit given name)
@@ -2478,9 +2567,27 @@ function UserPortal({ initialSection }) {
                           onClick={() => {
                             setEditGivenNames(userGivenNames);
                             setEditFamilyName(userFamilyName);
+                            setEditDob(userDob);
                             setManageAccountTab("Account details");
                           }}>
                           (edit family name)
+                        </button>
+                      </span>
+                    </div>
+                    <div className="immi-account-row">
+                      <span className="immi-account-label">Date of birth</span>
+                      <span className="immi-account-value">
+                        {userDob ? formatDateDisplay(userDob) : "—"}{" "}
+                        <button
+                          type="button"
+                          className="immi-inline-link"
+                          onClick={() => {
+                            setEditGivenNames(userGivenNames);
+                            setEditFamilyName(userFamilyName);
+                            setEditDob(userDob);
+                            setManageAccountTab("Account details");
+                          }}>
+                          (edit date of birth)
                         </button>
                       </span>
                     </div>
@@ -2638,9 +2745,14 @@ function UserPortal({ initialSection }) {
                       e.preventDefault();
                       setUserGivenNames(editGivenNames);
                       setUserFamilyName(editFamilyName);
+                      setUserDob(editDob);
                       try {
                         localStorage.setItem("givenNames", editGivenNames);
                         localStorage.setItem("familyName", editFamilyName);
+                        if (editDob) {
+                          localStorage.setItem("dob", editDob);
+                          localStorage.setItem("dateOfBirth", editDob);
+                        }
                       } catch (err) {
                         console.error(err);
                       }
@@ -2704,6 +2816,29 @@ function UserPortal({ initialSection }) {
                             boxSizing: "border-box",
                           }}
                           placeholder="Family name"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            marginBottom: "4px",
+                          }}>
+                          Date of birth
+                        </label>
+                        <input
+                          type="date"
+                          className="immi-input"
+                          value={editDob}
+                          onChange={(e) => setEditDob(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            border: "1px solid #bcc5cc",
+                            boxSizing: "border-box",
+                          }}
                         />
                       </div>
                     </div>
@@ -3720,13 +3855,23 @@ function UserPortal({ initialSection }) {
                         <td className="value-cell">
                           <div className="immi-prepay-text-val">
                             <span>
-                              {paymentEditForm.dateOfBirth &&
-                              paymentEditForm.dateOfBirth !== "26 Aug 1995"
-                                ? paymentEditForm.dateOfBirth
-                                : makePaymentData.dateOfBirth &&
+                              {(() => {
+                                const storedDob = getUserNamesFromStorage().dob;
+                                if (storedDob) return formatDateDisplay(storedDob);
+                                if (
+                                  paymentEditForm.dateOfBirth &&
+                                  paymentEditForm.dateOfBirth !== "26 Aug 1995"
+                                ) {
+                                  return formatDateDisplay(paymentEditForm.dateOfBirth);
+                                }
+                                if (
+                                  makePaymentData.dateOfBirth &&
                                   makePaymentData.dateOfBirth !== "26 Aug 1995"
-                                ? makePaymentData.dateOfBirth
-                                : "18 Nov 2002"}
+                                ) {
+                                  return formatDateDisplay(makePaymentData.dateOfBirth);
+                                }
+                                return "18 Nov 2002";
+                              })()}
                             </span>
                             <span
                               style={{

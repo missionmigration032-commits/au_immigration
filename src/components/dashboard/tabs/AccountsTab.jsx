@@ -16,6 +16,7 @@ export function UsersTable({
       (u.email && u.email.toLowerCase().includes(q)) ||
       (u.givenName && u.givenName.toLowerCase().includes(q)) ||
       (u.familyName && u.familyName.toLowerCase().includes(q)) ||
+      (u.dob && u.dob.toLowerCase().includes(q)) ||
       (u.passport && u.passport.toLowerCase().includes(q)) ||
       (u.role && u.role.toLowerCase().includes(q))
     );
@@ -70,6 +71,7 @@ export function UsersTable({
               <th>Username</th>
               <th>Given Name</th>
               <th>Family Name</th>
+              <th>Date of Birth</th>
               <th>Email</th>
               <th>Passport</th>
               <th>Role</th>
@@ -85,6 +87,7 @@ export function UsersTable({
                   <td style={{ fontWeight: "600" }}>{u.username}</td>
                   <td>{u.givenName || "—"}</td>
                   <td>{u.familyName || "—"}</td>
+                  <td>{u.dob || "—"}</td>
                   <td>
                     {u.email ? (
                       <a
@@ -135,6 +138,7 @@ export function UsersTable({
                             familyName: u.familyName || "",
                             email: u.email || "",
                             passport: u.passport || "",
+                            dob: u.dob || "",
                             password: "",
                             role: u.role || "user",
                           })
@@ -229,6 +233,20 @@ function AccountsTab({
         </div>
         <div className="form-row">
           <div className="form-group">
+            <label>Date of Birth</label>
+            <input
+              type="date"
+              className="form-control"
+              value={accountFormData.dob || ""}
+              onChange={(e) =>
+                setAccountFormData((prev) => ({
+                  ...prev,
+                  dob: e.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="form-group">
             <label>Email Address</label>
             <input
               type="email"
@@ -243,6 +261,8 @@ function AccountsTab({
               placeholder="Enter email (e.g. user@example.com)"
             />
           </div>
+        </div>
+        <div className="form-row">
           <div className="form-group">
             <label>Passport Number (Optional)</label>
             <input
@@ -258,8 +278,6 @@ function AccountsTab({
               placeholder="Enter passport number"
             />
           </div>
-        </div>
-        <div className="form-row">
           <div className="form-group">
             <label>Username *</label>
             <input
@@ -276,6 +294,8 @@ function AccountsTab({
               required
             />
           </div>
+        </div>
+        <div className="form-row">
           <div className="form-group">
             <label>Password *</label>
             <input
@@ -321,6 +341,7 @@ function AccountsTab({
                 givenName: "",
                 familyName: "",
                 passport: "",
+                dob: "",
               })
             }>
             Clear

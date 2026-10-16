@@ -60,6 +60,20 @@ function EditUserModal({
             </div>
             <div className="form-row">
               <div className="form-group">
+                <label>Date of Birth</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={editingUser.dob || ""}
+                  onChange={(e) =>
+                    setEditingUser({
+                      ...editingUser,
+                      dob: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="form-group">
                 <label>Email Address</label>
                 <input
                   type="email"
@@ -74,6 +88,8 @@ function EditUserModal({
                   placeholder="user@example.com"
                 />
               </div>
+            </div>
+            <div className="form-row">
               <div className="form-group">
                 <label>Passport Number</label>
                 <input
@@ -89,8 +105,6 @@ function EditUserModal({
                   placeholder="Passport number"
                 />
               </div>
-            </div>
-            <div className="form-row">
               <div className="form-group">
                 <label>Username *</label>
                 <input
